@@ -1,0 +1,103 @@
+load(
+    "@google_privacysandbox_functionaltest_system//bazel:rpc_test.bzl",
+    "ghz_test_suite",
+    "rpc_diff_test_suite",
+)
+load("@google_privacysandbox_functionaltest_system//sut:endpoint.bzl", "endpoint")
+
+server_endpoints = [
+    endpoint(
+        docker_network = "functest-local",
+        endpoint_type = "grpc",
+        host = "greeter",
+        port = 50051,
+        rpcs = [
+            ("greeter-sayhello", "helloworld.Greeter.SayHello", "//:tests/helloworld_descriptor_set.pb"),
+        ],
+        test_files_glob_spec_prefix = "GREETER_ENDPOINT",
+    ),
+    endpoint(
+        docker_network = "functest-local",
+        endpoint_type = "grpc",
+        host = "routeguide",
+        port = 50051,
+        rpcs = [
+            ("routeguide-getfeature", "routeguide.RouteGuide.GetFeature", "//:tests/routeguide_descriptor_set.pb"),
+            ("routeguide-listfeature", "routeguide.RouteGuide.ListFeatures", "//:tests/routeguide_descriptor_set.pb"),
+        ],
+        test_files_glob_spec_prefix = "ROUTEGUIDE_ENDPOINT",
+    ),
+]
+
+[
+    rpc_diff_test_suite(
+        name = "{}-{}-diff".format(
+            test_suite_name,
+            endpoint.endpoint_type,
+        ),
+        endpoint = endpoint,
+        plaintext = True,
+        protoset = protoset,
+        rpc = rpc,
+        test_files_glob_spec = "{}/{}/*".format(
+            endpoint.test_files_glob_spec_prefix,
+            rpc,
+        ),
+        test_size = "small",
+        test_tags = [
+            "external",
+            "manual",
+        ],
+    )
+    for endpoint in server_endpoints
+    for test_suite_name, rpc, protoset in endpoint.rpcs
+]
+
+[
+    ghz_test_suite(
+        name = "{}-{}-perf".format(
+            test_suite_name,
+            endpoint.endpoint_type,
+        ),
+        endpoint = endpoint,
+        plaintext = True,
+        protoset = protoset,
+        rpc = rpc,
+        test_files_glob_spec = "{}/{}/*".format(
+            endpoint.test_files_glob_spec_prefix,
+            rpc,
+        ),
+        test_tags = [
+            "exclusive",
+            "external",
+            "manual",
+        ],
+    )
+    for endpoint in server_endpoints
+    for test_suite_name, rpc, protoset in endpoint.rpcs
+    if endpoint.endpoint_type == "grpc"
+]
+
+test_types = {
+    "grpc": [
+        "diff",
+        "perf",
+    ],
+}
+
+test_suite(
+    name = "all_tests",
+    tags = [
+        "manual",
+    ],
+    tests = [
+        ":{}-{}-{}".format(
+            test_suite_name,
+            endpoint.endpoint_type,
+            test_type,
+        )
+        for endpoint in server_endpoints
+        for test_suite_name, rpc, protoset in endpoint.rpcs
+        for test_type in test_types[endpoint.endpoint_type]
+    ],
+)

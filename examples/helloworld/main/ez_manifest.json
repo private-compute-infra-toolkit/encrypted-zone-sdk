@@ -1,0 +1,28 @@
+{
+  "isolate_name": "ezpkg://helloworld.com",
+  "publisher_id": "helloworld_domain",
+  "package_filename": "/ez/helloworld_bundle.tar",
+  "binary_manifest": {
+    "binary_filename": "/usr/local/bin/helloworld",
+    "command_line_arguments": [""],
+    "service_specs": [
+      {
+        "service_name": "Greeter",
+        "method_specs": [
+          {
+            "method_name": "SayHello",
+            "input_scope_types": ["DATA_SCOPE_TYPE_PUBLIC"],
+            "output_scope_types": ["DATA_SCOPE_TYPE_PUBLIC"]
+          },
+          {
+            "method_name": "StreamingSayHello",
+            "input_scope_types": ["DATA_SCOPE_TYPE_PUBLIC"],
+            "output_scope_types": ["DATA_SCOPE_TYPE_PUBLIC"]
+          }
+        ]
+      }
+    ],
+    "number_of_isolates": 3,
+    "ez_backend_dependencies": []
+  }
+}

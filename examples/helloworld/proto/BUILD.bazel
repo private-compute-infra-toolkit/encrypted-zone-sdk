@@ -1,0 +1,82 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
+load("@rules_proto//proto:defs.bzl", "proto_descriptor_set")
+load("@rules_proto_grpc_cpp//:defs.bzl", "cpp_grpc_library")
+load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
+load("//examples/helloworld/proto:custom_templates.bzl", "custom_backend_struct")
+load("//tools/plugin:ez_sdk.bzl", "ez_isolate_service_cc")
+
+proto_library(
+    name = "greeter_proto",
+    srcs = ["greeter.proto"],
+    visibility = ["//visibility:public"],
+    deps = ["//enforcer/v1:options_proto"],
+)
+
+rust_prost_library(
+    name = "greeter_rust",
+    proto = ":greeter_proto",
+    visibility = ["//visibility:public"],
+)
+
+proto_descriptor_set(
+    name = "greeter_proto_descriptor_set",
+    visibility = ["//visibility:public"],
+    deps = [":greeter_proto"],
+)
+
+cpp_grpc_library(
+    name = "greeter_grpc_proto",
+    protos = [":greeter_proto"],
+    visibility = ["//visibility:public"],
+    deps = ["//enforcer/v1:options_cc_proto"],
+)
+
+cc_proto_library(
+    name = "greeter_cc_proto",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":greeter_proto",
+    ],
+)
+
+ez_isolate_service_cc(
+    name = "greeter_service",
+    cc_protos = [":greeter_cc_proto"],
+    proto_basename = "greeter",
+    protos = [":greeter_proto"],
+    visibility = ["//visibility:public"],
+)
+
+ez_isolate_service_cc(
+    name = "ez_greeter_service",
+    cc_protos = [":greeter_cc_proto"],
+    proto_basename = "ez_greeter",
+    protos = [":greeter_proto"],
+    visibility = ["//visibility:public"],
+)
+
+ez_isolate_service_cc(
+    name = "custom_greeter_service",
+    proto_basename = "greeter",
+    protoc_struct = custom_backend_struct,
+    protos = [":greeter_proto"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":greeter_cc_proto",
+    ],
+)

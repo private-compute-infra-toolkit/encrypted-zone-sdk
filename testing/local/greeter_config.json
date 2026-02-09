@@ -1,0 +1,15 @@
+{
+  "manifest_json_path": "examples/helloworld/main/ez_manifest.json",
+  "rpc": "SayHello",
+  "rpc_type": "UNARY",
+  "proto_message": "helloworld.HelloRequest",
+  "proto_file": "examples/helloworld/proto/greeter.proto",
+  "requests": [
+    {
+      "name": "Foo"
+    },
+    {
+      "name": "Bar"
+    }
+  ]
+}

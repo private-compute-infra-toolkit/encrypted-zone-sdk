@@ -1,0 +1,457 @@
+#!/bin/bash
+
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+set -o pipefail
+set -o errexit
+export PS4='+\t $(basename ${BASH_SOURCE[0]}):${LINENO} ' # xtrace prompt
+
+if ! [[ -v WORKSPACE ]]; then
+  # shellcheck disable=SC2155
+  declare -g -r -x WORKSPACE="$(git rev-parse --show-toplevel)"
+fi
+
+declare SERVER_BINARIES=()
+declare MANIFEST_JSON_PATH=""
+declare SERVICE_NAME=""
+declare RPC=""
+declare OUTPUT_FILE=""
+declare INPUT_FILE=""
+declare -a ENFORCER_PIDS=()
+declare -a ISOLATES=()
+declare -a SERVER_PIDS=()
+declare INPUT_IS_JSON=false
+declare -a REQUESTS=()
+declare PROTO_FILE=""
+declare IS_STREAMING=false # default to unary rpc
+declare RPC_TYPE="UNARY"
+declare DEBUG_MODE=false
+
+declare JQ
+declare PROTOC
+declare GRPCURL
+declare BAZEL="${WORKSPACE}/devkit/build bazel"
+
+declare ENFORCER_START_DELAY=1
+declare SERVER_START_DELAY=2
+
+function usage() {
+  declare -r -i exitval=${1:-1}
+  cat &>/dev/stderr <<USAGE
+usage:
+  $0 [options] <input textproto file>
+  $0 <json config file [expects JSON object with server_bundle, isolate_service fields, and a list of request objects]>
+example:
+  $0 -m examples/helloworld/main/ez_manifest.json -r SayHello testing/docker-compose-hermetic/test_cases/helloworld/ezhello.request.textproto
+options:
+    --manfest | -m         Path to manifest.json file (required)
+    --rpc | -r             RPC name to use in control plane metadata (required)
+    --rpc_type | -t        RPC type: UNARY, STREAMING (default: UNARY)
+    --output_file | -o     Output textproto file (optional)
+    --enforcer_delay | -e  Time to wait for enforcer to start (default: 1 second)
+    --server_delay | -e    Time to wait for servers to start (default: 2 seconds)
+    --debug | -d           Enable debug mode (skip rebuilding non server targets)
+    --verbose              Produce verbose output
+    -h | --help            Show this help message
+USAGE
+  exit ${exitval}
+}
+
+function cleanup() {
+  declare -r -i status=$?
+  printf "Cleaning up processes...\n"
+
+  for pid in "${ENFORCER_PIDS[@]}"; do
+    if ps -p "${pid}" > /dev/null; then
+      kill -INT "${pid}"
+      sleep 1
+    fi
+    if ps -p "${pid}" > /dev/null; then
+      kill -KILL "${pid}"
+      wait "${pid}"
+    fi
+  done
+
+  for pid in "${SERVER_PIDS[@]}"; do
+    if ps -p "${pid}" > /dev/null; then
+      kill -INT "${pid}"
+      sleep 1
+    fi
+    if ps -p "${pid}" > /dev/null; then
+      kill -KILL "${pid}"
+      wait "${pid}"
+    fi
+  done
+
+  if [[ ${status} -ne 0 ]]; then
+    printf "Error: test_sdk_standalone status code: %d\n" "${status}" &>/dev/stderr
+  fi
+  exit ${status}
+}
+
+trap cleanup EXIT
+
+if ! command -v ldd >/dev/null 2>&1; then
+  printf "Error: 'ldd' command not found. Cannot verify system compatibility.\n" >&2
+  exit 1
+fi
+
+LIBC_VERSION=$(ldd --version 2>&1 | head -n1 | grep -oE '[0-9]+\.[0-9]+' | head -n1)
+if [[ -n "${LIBC_VERSION}" ]]; then
+    if ! awk -v ver="${LIBC_VERSION}" 'BEGIN {exit !(ver >= 2.31)}'; then
+        printf "Warning: This script requires GNU libc (glibc) 2.31 or later.\n" >&2
+        printf "Your system has version: %s\n" "${LIBC_VERSION}" >&2
+        printf "Consider using the docker-compose-hermetic test framework instead.\n" >&2
+        read -p "Do you want to continue anyway? [y/N] " -r
+        [[ ${REPLY} =~ ^[Yy]$ ]] || exit 1
+    fi
+else
+    printf "Warning: Could not determine libc version.\n" >&2
+    printf "Consider using the docker-compose-hermetic test framework instead.\n" >&2
+    read -p "Do you want to continue anyway? [y/N] " -r
+    [[ ${REPLY} =~ ^[Yy]$ ]] || exit 1
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --manifest | -m)
+      if [[ -z $2 ]]; then
+        printf "Error: --manifest requires an argument\n" &>/dev/stderr
+        usage 1
+      fi
+      MANIFEST_JSON_PATH="$2"
+      shift 2
+      ;;
+    --rpc | -r)
+      if [[ -z $2 ]]; then
+        printf "Error: --rpc requires an argument\n" &>/dev/stderr
+        usage 1
+      fi
+      RPC="$2"
+      shift 2 || usage 1
+      ;;
+    --rpc_type | -t)
+      if [[ -z $2 ]]; then
+        printf "Error: --rpc_type requires an argument\n" &>/dev/stderr
+        usage 1
+      fi
+      RPC_TYPE="$2"
+      shift 2 || usage 1
+      ;;
+    --output_file | -o)
+      if [[ -z $2 ]]; then
+        printf "Error: --output_file requires an argument\n" &>/dev/stderr
+        usage 1
+      fi
+      OUTPUT_FILE="$2"
+      shift 2 || usage 1
+      ;;
+    --enforcer_delay | -e)
+      if [[ -z $2 ]]; then
+        printf "Error: --enforcer_delay requires an argument\n" &>/dev/stderr
+        usage 1
+      fi
+      ENFORCER_START_DELAY="$2"
+      shift 2 || usage 1
+      ;;
+    --server_delay | -s)
+      if [[ -z $2 ]]; then
+        printf "Error: --server_delay requires an argument\n" &>/dev/stderr
+        usage 1
+      fi
+      SERVER_START_DELAY="$2"
+      shift 2 || usage 1
+      ;;
+    --verbose)
+      set -o xtrace
+      shift
+      ;;
+    --debug | -d)
+      DEBUG_MODE=true
+      shift
+      ;;
+    -h | --help)
+      usage 0
+      ;;
+    *)
+      if [[ -z "${INPUT_FILE}" ]]; then
+        INPUT_FILE="$1"
+      else
+        printf "Error: unexpected argument: %s\n" "$1" &>/dev/stderr
+        usage 1
+      fi
+      shift
+      ;;
+  esac
+done
+
+function check_and_set_tools() {
+  # Check for required tools: jq, protoc, grpcurl
+  for tool in jq protoc grpcurl; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      printf "Required tool '%s' is not installed. Exiting.\n" "$tool" >&2
+      exit 1
+    fi
+  done
+
+  JQ="$(command -v jq)"
+  PROTOC="$(command -v protoc)"
+  GRPCURL="$(command -v grpcurl)"
+}
+
+check_and_set_tools
+
+if [[ -z "${INPUT_FILE}" ]]; then
+  printf "Error: input file is required\n" &>/dev/stderr
+  usage 1
+fi
+
+if [[ ! -f "${INPUT_FILE}" ]]; then
+  printf "Error: input file does not exist: %s\n" "${INPUT_FILE}" &>/dev/stderr
+  usage 1
+fi
+
+if "${JQ}" -e . >/dev/null 2>&1 < "${INPUT_FILE}"; then
+  INPUT_IS_JSON=true
+  printf "Using JSON config file\n"
+else
+  printf "Using textproto input file\n"
+fi
+
+# if INPUT_IS_JSON is true, parse the json file to get the server_bundle, isolate_service, and list of requests
+if [[ "${INPUT_IS_JSON}" = true ]]; then
+  read -r RPC RPC_TYPE MANIFEST_JSON_PATH PROTO_FILE < <(
+    "${JQ}" -r '[.rpc, .rpc_type, .manifest_json_path, .proto_file] | @tsv' < "${INPUT_FILE}"
+  )
+  mapfile -t REQUESTS < <("${JQ}" -r '.requests[] | (to_entries | map("\(.key): \(.value | tojson)") | join(", "))' "${INPUT_FILE}")
+else
+  # Get the proto file from the first line of the input textproto
+  read -r first_line < "${INPUT_FILE}"
+  if [[ "${first_line}" =~ ^#[[:space:]]*proto-file:[[:space:]]*([^[:space:]]+) ]]; then
+    PROTO_FILE="${BASH_REMATCH[1]}"
+  else
+    printf "Error: First line must specify proto-file\n" >&2
+    printf "line: %s\n" "${first_line}" >&2
+    printf "Example: # proto-file: \"path/to/file.proto\"\n" >&2
+    exit 1
+  fi
+  REQUESTS=("${INPUT_FILE}")
+fi
+
+if [[ "${RPC_TYPE}" == "UNARY" ]]; then
+  IS_STREAMING=false
+elif [[ "${RPC_TYPE}" == "STREAMING" ]]; then
+  IS_STREAMING=true
+else
+  printf "Error: --rpc_type must be 'UNARY' or 'STREAMING'\n" &>/dev/stderr
+  usage 1
+fi
+
+# Validate required arguments
+if [[ -z "${MANIFEST_JSON_PATH}" ]]; then
+  printf "Error: --manifest is required\n" &>/dev/stderr
+  usage 1
+fi
+
+if [[ -z "${RPC}" ]]; then
+  printf "Error: --rpc is required\n" &>/dev/stderr
+  usage 1
+fi
+
+# Extract all server bundle binaries and service names from each manifest
+mapfile -t SERVER_BINARIES < <("${JQ}" -r '.bundle_manifest.manifests[].binary_manifest.binary_filename' >/dev/null 2>&1 < "${WORKSPACE}/${MANIFEST_JSON_PATH}")
+mapfile -t ISOLATES < <("${JQ}" -r '.bundle_manifest.manifests[].binary_manifest.service_specs[0].service_name' >/dev/null 2>&1 < "${WORKSPACE}/${MANIFEST_JSON_PATH}")
+if [[ ${#SERVER_BINARIES[@]} -eq 0 ]]; then
+  mapfile -t SERVER_BINARIES < <("${JQ}" -r '.binary_manifest.binary_filename' < "${WORKSPACE}/${MANIFEST_JSON_PATH}")
+  mapfile -t ISOLATES < <("${JQ}" -r '.binary_manifest.service_specs[0].service_name' < "${WORKSPACE}/${MANIFEST_JSON_PATH}")
+fi
+
+SERVICE_NAME="${ISOLATES[0]}"
+
+declare REQUEST_TYPE
+declare RESPONSE_TYPE
+
+function parse_message_types_from_proto() {
+  PROTO_FILE=$1
+  SERVICE_NAME=$2
+  RPC_NAME=$3
+
+  # Extract directory and filename from the proto file path
+  PROTO_DIR="$(dirname "${PROTO_FILE}")"
+  PROTO_FILENAME="$(basename "${PROTO_FILE}")"
+
+  # Discover the package name from the proto file.
+  PACKAGE=$(grep -oP '(?<=^package\s)[^;]+' "$PROTO_FILE")
+
+  if [ -z "$PACKAGE" ]; then
+    echo "Error: Could not determine package from proto file."
+    exit 1
+  fi
+
+  # Construct the fully qualified RPC method name
+  # e.g., helloworld.Greeter.SayHello
+  FULL_RPC_NAME="${PACKAGE}.${SERVICE_NAME}.${RPC_NAME}"
+
+  # Use grpcurl to describe the specific RPC method.
+  # The output is then piped to awk to extract the request and response types.
+  # shellcheck disable=SC2155
+  local proto_describe=$("${GRPCURL}" \
+    -import-path "$PROTO_DIR" \
+    -import-path "${WORKSPACE}" \
+    -proto "${PROTO_FILENAME}" \
+    describe "${FULL_RPC_NAME}")
+
+  REQUEST_TYPE=$(echo "${proto_describe})" | \
+    awk -F'[()]' '/^rpc / { printf "%s", $2 }' | sed 's/stream //' | sed 's/\.//' | xargs)
+  RESPONSE_TYPE=$(echo "${proto_describe})" | \
+    awk -F'[()]' '/^rpc / { printf "%s", $4 }' | sed 's/stream //' | sed 's/\.//' | xargs)
+}
+
+# Get manifest_json_path directory
+MANIFEST_DIR=$(dirname "${MANIFEST_JSON_PATH}")
+
+# for every binary in server_binaries, replace /usr/local/bin with MANIFEST_DIR
+# In the manifest, the binary paths are absolute paths starting with /usr/local/bin
+# We need to convert them to relative paths based on the manifest location. Assumes
+# the binaries are located in the same relative path as the manifest.
+for i in "${!SERVER_BINARIES[@]}"; do
+  SERVER_BINARIES[i]="${MANIFEST_DIR}/${SERVER_BINARIES[$i]#*/usr/local/bin/}"
+done
+
+# Normalize paths by removing leading slashes and replacing colons with slashes
+
+MOCK_ENFORCER_BINARY="testing/local/mock_enforcer"
+if [[ "${DEBUG_MODE}" = false ]]; then
+  printf "Building isolate service and dependencies...\n"
+  ${BAZEL} build "${MOCK_ENFORCER_BINARY}"
+  ${BAZEL} build //enforcer/v1:enforcer_descriptor_set
+else
+  printf "Debug mode enabled, skipping rebuild of isolate service and dependencies...\n"
+fi
+for server in "${SERVER_BINARIES[@]}"; do
+  ${BAZEL} build "${server}"
+  #shellcheck disable=SC2181
+  if [[ $? -ne 0 ]]; then
+    printf "Error: Failed to build server binary: %s. Ensure binary in same directory as manifest.json.\n" "${server}" &>/dev/stderr
+    exit 1
+  fi
+done
+
+parse_message_types_from_proto "${PROTO_FILE}" "${SERVICE_NAME}" "${RPC}"
+
+echo "Testing ${SERVICE_NAME}.${RPC} with request_type: ${REQUEST_TYPE}, response_type: ${RESPONSE_TYPE}"
+
+# Start enforcer in background
+"${WORKSPACE}/bazel-bin/${MOCK_ENFORCER_BINARY}" "${ISOLATES[@]}" &
+ENFORCER_PIDS+=($!)
+
+# Wait for enforcer to start
+sleep "${ENFORCER_START_DELAY}"
+
+function kebab_case() {
+  echo "$1" | sed -E 's/([a-z0-9])([A-Z])/\1-\2/g' | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr '_' '-'
+}
+
+# Start server bundle in background
+for i in "${!SERVER_BINARIES[@]}"; do
+  server="${SERVER_BINARIES[$i]}"
+  ISOLATES[i]="$(kebab_case "${ISOLATES[$i]}")"
+  isolate="${ISOLATES[$i]}"
+  if [[ ! -f "${WORKSPACE}/bazel-bin/${server}" ]]; then
+    printf "Error: Server binary does not exist: %s\n" "${WORKSPACE}/bazel-bin/${server}" &>/dev/stderr
+    exit 1
+  fi
+  # Convert isolate to socket_path argument
+  "${WORKSPACE}/bazel-bin/${server}" "/tmp/${isolate}-server-uds" &
+  SERVER_PIDS+=($!)
+done
+
+# Wait for services to start
+sleep "${SERVER_START_DELAY}"
+
+declare REQUEST_JSON=""
+declare RESPONSE=""
+for request in "${REQUESTS[@]}"; do
+  # For unary requests, reset REQUEST_JSON for each request before making gRPC call
+  if [[ "${IS_STREAMING}" = false ]]; then
+    REQUEST_JSON=""
+  fi
+
+  declare _req=""
+  if [[ "${INPUT_IS_JSON}" = true ]]; then
+    _req="${request}"
+  else
+    # If textproto input, REQUESTS only contains textproto filepath
+    _req="$(cat "${request}")"
+  fi
+
+  # Convert textproto to binary proto and encode as base64
+  ENCODED_INPUT=$(echo "${_req}" | "${PROTOC}" --encode="${REQUEST_TYPE}" "${PROTO_FILE}" | base64 -w 0)
+
+  REQUEST_JSON+=$(cat <<EOF
+{
+  "control_plane_metadata": {
+    "destination_service_name": "${SERVICE_NAME}",
+    "destination_method_name": "${RPC}"
+  },
+  "isolate_input": {
+    "datagrams": ["${ENCODED_INPUT}"]
+  }
+}
+EOF
+)
+
+  if [[ "${IS_STREAMING}" = false ]]; then
+    RESPONSE+=$("${GRPCURL}" -d @ \
+    -protoset "${WORKSPACE}"/bazel-bin/enforcer/v1/enforcer_descriptor_set.pb \
+    -plaintext \
+    -unix /tmp/"${ISOLATES[0]}"-server-uds \
+    enforcer.v1.EzIsolateBridge/InvokeIsolate <<< "${REQUEST_JSON}")
+  fi
+done
+
+# Make gRPC request with accumulated requests for streaming RPC
+if [[ "${IS_STREAMING}" = true ]]; then
+  RESPONSE=$("${GRPCURL}" -d @ \
+  -protoset "${WORKSPACE}"/bazel-bin/enforcer/v1/enforcer_descriptor_set.pb \
+  -plaintext \
+  -unix /tmp/"${ISOLATES[0]}"-server-uds \
+  enforcer.v1.EzIsolateBridge/StreamInvokeIsolate <<< "${REQUEST_JSON}")
+fi
+
+# shellcheck disable=SC2155
+declare TMP_OUTPUT_FILE="$(mktemp)"
+{
+  printf "# proto-file: %s\n" "${PROTO_FILE}"
+  printf "# rpc: %s\n" "${RPC}"
+  printf "# proto-message: %s\n" "${RESPONSE_TYPE}"
+} >> "${TMP_OUTPUT_FILE}"
+
+echo "${RESPONSE}" | "${JQ}" -r '.isolateOutput.datagrams[0]' | while IFS= read -r BASE64_RESPONSE; do
+  # Extract base64 response and decode back to textproto
+  DECODED_RESPONSE="$(echo "${BASE64_RESPONSE}" | base64 -d | \
+    "${PROTOC}" --decode="${RESPONSE_TYPE}" "${PROTO_FILE}")"
+
+  printf "%s\n" "${DECODED_RESPONSE}" >> "${TMP_OUTPUT_FILE}"
+done
+
+if [[ -n "${OUTPUT_FILE}" ]]; then
+  mv "${TMP_OUTPUT_FILE}" "${OUTPUT_FILE}"
+  printf "Wrote output to %s\n" "${OUTPUT_FILE}"
+else
+  printf "\n%s\n\n" "$(cat "${TMP_OUTPUT_FILE}")"
+fi
+
+rm "${TMP_OUTPUT_FILE}"

@@ -1,0 +1,91 @@
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@google_privacysandbox_functionaltest_system//sut:endpoint.bzl", "endpoint")
+load(
+    "//test_cases:rpc_test.bzl",
+    "ghz_test_suite",
+    "rpc_diff_test_suite",
+)
+
+exposed_endpoints = __ENDPOINTS__
+
+# Diff Tests
+[
+    rpc_diff_test_suite(
+        name = "{}-{}-diff-{}".format(test_files_dir, method_name, type),
+        endpoint = endpoint,
+        is_streaming_rpc = type == "streaming",
+        jq_raw = True,
+        method_name = method_name,
+        plaintext = True,
+        protoset = protoset,
+        service_name = service_name,
+        test_files_glob_spec = "{}/*".format(test_files_dir),
+        test_size = test_size,
+        test_tags = [
+            "diff-tests",
+            "external",
+        ],
+    )
+    for endpoint in exposed_endpoints
+    for test_files_dir, test_size, protoset, method_name, service_name, type in endpoint.rpcs
+]
+
+perf_test_count = 10 * 1000
+
+write_file(
+    name = "ghz_config-unary",
+    out = "ghz_config-unary.json",
+    content = [json.encode({
+        "async": True,
+        "concurrency": 40,
+        "enable-compression": False,
+        "name": "EZ Enforcer local hermetic perf tests",
+        "plaintext": True,
+        "rps": 800,
+        "total": perf_test_count,
+    })],
+)
+
+write_file(
+    name = "ghz_config-streaming",
+    out = "ghz_config-streaming.json",
+    content = [json.encode({
+        "async": True,
+        "concurrency": 40,
+        "enable-compression": False,
+        "name": "EZ Enforcer local hermetic perf tests",
+        "plaintext": True,
+        "rps": 800,
+        "stream-call-count": 1000,
+        "total": perf_test_count,
+    })],
+)
+
+# Perf Tests
+[
+    ghz_test_suite(
+        name = "{}-{}-{}-ghz-{}".format(
+            test_files_dir,
+            method_name,
+            endpoint.endpoint_type,
+            type,
+        ),
+        config_file = ":ghz_config-{}.json".format(type),
+        endpoint = endpoint,
+        is_streaming_rpc = type == "streaming",
+        jq_raw = True,
+        method_name = method_name,
+        plaintext = True,
+        protoset = protoset,
+        service_name = service_name,
+        test_files_glob_spec = "{}/*".format(test_files_dir),
+        test_size = test_size,
+        test_tags = [
+            "exclusive",
+            "external",
+            "perf-tests",
+        ],
+    )
+    for endpoint in exposed_endpoints
+    for test_files_dir, test_size, protoset, method_name, service_name, type in endpoint.rpcs
+]

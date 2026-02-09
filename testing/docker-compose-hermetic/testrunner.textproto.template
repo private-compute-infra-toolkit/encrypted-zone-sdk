@@ -1,0 +1,29 @@
+name: "ez-local test-sut"
+
+# TODO(): fix test tag filtering
+stages: {
+  command: {
+    bazel: {
+      test_targets: "--runs_per_test=1"
+      test_targets: "--flaky_test_attempts=2"
+      test_targets: "--runs_per_test_detects_flakes"
+${TEST_TARGETS}
+    }
+  }
+}
+# NOTE: order matters here, run perf-tests lasts o/w isolates will be stuck replying
+# to perf-test requests in the following stages
+stages: {
+  command: {
+    bazel: {
+${STREAMING_PERF_TESTS}
+    }
+  }
+}
+stages: {
+  command: {
+    bazel: {
+${PERF_TESTS}
+    }
+  }
+}

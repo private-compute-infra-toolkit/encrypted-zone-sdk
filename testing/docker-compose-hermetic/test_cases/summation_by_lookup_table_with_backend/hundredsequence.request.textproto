@@ -1,0 +1,5 @@
+# proto-file: examples/summation_by_lookup_table_with_backend/proto/summation.proto
+# proto-message: summation.IntegerSequenceRequest
+start_at: 1
+end_at: 100
+expected_result: 5050

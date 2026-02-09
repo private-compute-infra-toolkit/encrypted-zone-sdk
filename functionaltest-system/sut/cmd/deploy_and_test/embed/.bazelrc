@@ -1,0 +1,8 @@
+common --noenable_bzlmod
+test --test_verbose_timeout_warnings
+build --action_env=GHZ
+build --action_env=GRPCURL
+build --action_env=HOME
+build --action_env=JQ
+build --action_env=PROMQL
+build --action_env=PROTOC

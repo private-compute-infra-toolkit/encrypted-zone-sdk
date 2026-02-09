@@ -1,0 +1,67 @@
+workspace(name = "google_privacysandbox_functionaltest_system")
+
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "aspect_bazel_lib",
+    sha256 = "87ab4ec479ebeb00d286266aca2068caeef1bb0b1765e8f71c7b6cfee6af4226",
+    strip_prefix = "bazel-lib-2.7.3",
+    url = "https://github.com/aspect-build/bazel-lib/releases/download/v2.7.3/bazel-lib-v2.7.3.tar.gz",
+)
+
+load("@aspect_bazel_lib//lib:repositories.bzl", "aspect_bazel_lib_dependencies", "aspect_bazel_lib_register_toolchains", "register_jq_toolchains")
+
+aspect_bazel_lib_dependencies()
+
+aspect_bazel_lib_register_toolchains()
+
+register_jq_toolchains()
+
+http_archive(
+    name = "com_github_grpc_grpc",
+    patch_args = ["-p1"],
+    patches = ["//third_party:grpc.patch"],
+    sha256 = "ed5298b95ca6d1c2fb2410071e64c944cda23a98179902d701cad42edeb39c5d",
+    strip_prefix = "grpc-1.72.0",
+    urls = [
+        "https://github.com/grpc/grpc/archive/v1.72.0.zip",
+    ],
+)
+
+load("@com_github_grpc_grpc//bazel:grpc_deps.bzl", "grpc_deps")
+
+grpc_deps()
+
+load("@com_github_grpc_grpc//bazel:grpc_extra_deps.bzl", "grpc_extra_deps")
+
+grpc_extra_deps()
+
+load("@rules_pkg//:deps.bzl", "rules_pkg_dependencies")
+
+rules_pkg_dependencies()
+
+http_archive(
+    name = "rules_oci",
+    sha256 = "6174e8e760128b51ec6fa51e65c1a2e267e1d99692f80663575d02d8cd71d34d",
+    strip_prefix = "rules_oci-2.2.1",
+    urls = ["https://github.com/bazel-contrib/rules_oci/archive/refs/tags/v2.2.1.zip"],
+)
+
+load("@rules_oci//oci:dependencies.bzl", "rules_oci_dependencies")
+
+rules_oci_dependencies()
+
+load("@rules_oci//oci:repositories.bzl", "oci_register_toolchains")
+
+oci_register_toolchains(name = "oci")
+
+http_archive(
+    name = "container_structure_test",
+    sha256 = "ce8301cf7325ba2890dee9a8af2bb8138c4673b4e880f634176b141869b09a8f",
+    strip_prefix = "container-structure-test-1.18.1",
+    urls = ["https://github.com/GoogleContainerTools/container-structure-test/archive/refs/tags/v1.18.1.zip"],
+)
+
+load("//third_party:container_deps.bzl", "container_deps")
+
+container_deps()

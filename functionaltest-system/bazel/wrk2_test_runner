@@ -1,0 +1,197 @@
+#!/bin/bash
+
+set -o errexit
+
+declare PROTOCOL=https
+declare -a WRK2_ARGS=()
+
+function usage() {
+  local -r -i exitval=$1
+  cat &>/dev/stderr <<USAGE
+usage:
+  $0 <options>
+    --endpoint-hostport <host:port> host:port string
+    --docker-network <name>         docker network
+    --rpc <rpc name>                rpc name
+    --request <filename>            request.json filename
+    --request-rate <integer>        number of requests per second (throughput)
+    --connections <integer>         number of connections to keep open
+    --duration <string>             duration of test (e.g. 2s, 2m, 2h)
+    --threads <integer>             number of threads to use
+    --latency                       print latency statistics
+    --timeout <string>              request timeout (e.g. 2s, 2m, 2h)
+    --lua-script <filename>         lua script file
+    --plaintext                     send plaintext request
+    --http-path <string>            path used with endpoint hostport
+environment variables:
+    TEST_TOOLS_IMAGE                docker image uri for test tools
+USAGE
+  # shellcheck disable=SC2086
+  exit ${exitval}
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --endpoint-hostport)
+      ENDPOINT_HOSTPORT="$2"
+      shift 2
+      ;;
+    --docker-network)
+      DOCKER_NETWORK="$2"
+      shift 2
+      ;;
+    --rpc)
+      RPC="$2"
+      shift 2
+      ;;
+    --request)
+      REQUEST_FILENAME="$2"
+      shift 2
+      ;;
+    --request-rate)
+      REQUEST_RATE="$2"
+      WRK2_ARGS+=("-R$2")
+      shift 2
+      ;;
+    --connections)
+      WRK2_ARGS+=("-c$2")
+      shift 2
+      ;;
+    --duration)
+      WRK2_ARGS+=("-d$2")
+      shift 2
+      ;;
+    --threads)
+      WRK2_ARGS+=("-t$2")
+      shift 2
+      ;;
+    --latency)
+      WRK2_ARGS+=("--latency")
+      shift
+      ;;
+    --timeout)
+      WRK2_ARGS+=("--timeout $2")
+      shift 2
+      ;;
+    --lua-script)
+      LUA_SCRIPT_FILENAME="$(realpath "$2")"
+      shift 2
+      ;;
+    --plaintext)
+      PROTOCOL=http
+      shift
+      ;;
+    --http-path)
+      HTTP_PATH="$2"
+      shift 2
+      ;;
+    --help | -h) usage 0 ;;
+    *) usage 1 ;;
+  esac
+done
+
+: "${ENDPOINT_HOSTPORT?"Error: --endpoint-hostport not specified"}"
+: "${RPC?"Error: --rpc must be specified"}"
+: "${REQUEST_RATE?"Error: --request-rate must be specified"}"
+: "${TEST_TOOLS_IMAGE?"Error: Test tools image URI not specified in TEST_TOOLS_IMAGE env var"}"
+
+if [[ -z "${TEST_DATA_SOURCE}" ]]; then
+  TEST_DATA_SOURCE="$(docker volume create)"
+  export TEST_DATA_SOURCE
+  readonly TEST_DATA_SOURCE
+fi
+if [[ -z "${TEST_DATA_TARGET}" ]]; then
+  TEST_DATA_TARGET="/data"
+  export TEST_DATA_TARGET
+  readonly TEST_DATA_TARGET
+fi
+
+trap cleanup EXIT
+function cleanup() {
+  local -r -i STATUS=$?
+  if [[ ${STATUS} -eq 0 ]]; then
+    rm -rf "${TMP_DIR}"
+    docker volume rm "${TEST_DATA_SOURCE}"
+  fi
+  exit ${STATUS}
+}
+
+declare -r REPORT_FILE=wrk2_report.json
+declare -a DOCKER_ARGS=(
+  "--rm"
+  "--interactive"
+  "--entrypoint=/bin/bash"
+  "--mount=type=volume,source=${TEST_DATA_SOURCE},target=${TEST_DATA_TARGET}"
+  "--workdir=${TEST_DATA_TARGET}"
+)
+
+LUA_DIR="$(mktemp --directory)"
+readonly LUA_DIR
+chmod 755 "${LUA_DIR}"
+declare -r REQUEST_FNAME=request_data
+
+function copy_file_to_container() {
+  local -r INPUT_FILE="$1"
+  local -r OUTPUT_FILE="$2"
+
+  docker run "${DOCKER_ARGS[@]}" \
+    "${TEST_TOOLS_IMAGE}" \
+    -c "cat /dev/stdin > '${OUTPUT_FILE}'" \
+    <"${INPUT_FILE}"
+}
+
+if [[ -n ${REQUEST_FILENAME} ]]; then
+  copy_file_to_container "${REQUEST_FILENAME}" "${TEST_DATA_TARGET}/${REQUEST_FNAME}"
+fi
+
+if [[ -z ${HTTP_PATH} ]]; then
+  HTTP_PATH="${RPC%.*}"/"${RPC##*.}"
+fi
+
+if [[ -n ${DOCKER_NETWORK} ]]; then
+  DOCKER_ARGS+=("--network=${DOCKER_NETWORK}")
+fi
+
+declare -r LUA_SCRIPT_FNAME=script.lua
+
+if [[ -s ${LUA_SCRIPT_FILENAME} ]]; then
+  copy_file_to_container "${LUA_SCRIPT_FILENAME}" "${TEST_DATA_TARGET}/${LUA_SCRIPT_FNAME}"
+  # The Lua script may load request files or jq filters from the workspace - copy them to the container
+  TEST_DIR="$(dirname "${LUA_SCRIPT_FILENAME}")"
+  readonly TEST_DIR
+  for path in "${TEST_DIR}"/*; do
+    if [[ -f "$path" ]] && [[ "$path" != "${LUA_SCRIPT_FILENAME}" ]]; then
+      copy_file_to_container "${path}" "${TEST_DATA_TARGET}/$(basename "${path}")"
+    fi
+  done
+else
+  cat >"${LUA_DIR}/${LUA_SCRIPT_FNAME}" <<EOF
+wrk.method = "POST"
+wrk.headers["Content-Type"] = "application/json"
+
+f = assert(io.open("${TEST_DATA_TARGET}/${REQUEST_FNAME}", "rb"))
+body_1 = f:read("*all")
+body_1 = body_1:gsub("[\n\r]", " ")
+f:close()
+
+function request()
+    return wrk.format(nil, nil, nil, body_1)
+end
+
+response = function(status, header, body)
+    if status > 200 then
+        print("status:" .. status)
+        print(body)
+        print("-------------------------------------------------");
+    end
+end
+EOF
+
+  copy_file_to_container "${LUA_DIR}/${LUA_SCRIPT_FNAME}" "${TEST_DATA_TARGET}/${LUA_SCRIPT_FNAME}"
+fi
+
+WRK2_ARGS+=(
+  -s "${TEST_DATA_TARGET}/${LUA_SCRIPT_FNAME}"
+  "${PROTOCOL}://${ENDPOINT_HOSTPORT}/${HTTP_PATH}"
+)
+docker run "${DOCKER_ARGS[@]}" "${TEST_TOOLS_IMAGE}" -c "wrk2 ${WRK2_ARGS[*]}" >"${TEST_UNDECLARED_OUTPUTS_DIR}/${REPORT_FILE}"

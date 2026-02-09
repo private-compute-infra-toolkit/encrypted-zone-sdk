@@ -1,0 +1,292 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+module(
+    name = "privacy-sandbox-ez-sdk",
+    version = "0.0.0",
+)
+
+local_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:local.bzl", "local_repository")
+
+local_repository(
+    name = "google_privacysandbox_functionaltest_system",
+    path = "functionaltest-system",
+)
+
+bazel_dep(name = "abseil-cpp", version = "20250512.1", repo_name = "com_google_absl")
+bazel_dep(name = "aspect_bazel_lib", version = "2.20.0")
+bazel_dep(name = "bazel_skylib", version = "1.8.1")
+bazel_dep(name = "gazelle", version = "0.37.0")
+bazel_dep(name = "grpc", version = "1.74.1")
+bazel_dep(name = "protobuf", version = "29.3", repo_name = "com_google_protobuf")
+bazel_dep(name = "rules_buf", version = "0.5.2")
+bazel_dep(name = "rules_cc", version = "0.2.0")
+bazel_dep(name = "rules_go", version = "0.57.0")
+bazel_dep(name = "rules_oci", version = "2.0.1")
+bazel_dep(name = "rules_pkg", version = "1.0.1")
+bazel_dep(name = "rules_proto", version = "7.1.0")
+bazel_dep(name = "rules_proto_grpc", version = "5.6.0")
+bazel_dep(name = "rules_proto_grpc_cpp", version = "5.6.0")
+bazel_dep(name = "rules_python", version = "1.2.0")
+bazel_dep(name = "rules_rust", version = "0.61.0")
+bazel_dep(name = "rules_rust_prost", version = "0.61.0")
+bazel_dep(name = "toolchains_protoc", version = "0.4.3")
+bazel_dep(name = "googletest", version = "1.15.2", repo_name = "com_google_googletest")
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "confidential-federated-compute",
+    build_file_content = """
+filegroup(
+  name = "sysroot",
+  srcs = glob(["*/**"]),
+  visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "f58c289b3ccb28895ad8ca408ac366e709037088e8b5c28aca18212adc18c31e",
+    urls = ["https://github.com/google-parfait/confidential-federated-compute/releases/download/sysroot-20250618/sysroot.tar.xz"],
+)
+
+bazel_dep(name = "toolchains_llvm", version = "1.4.0", dev_dependency = True)
+
+llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm", dev_dependency = True)
+llvm.toolchain(
+    name = "cpp_toolchain",
+    llvm_version = "20.1.0",
+)
+llvm.sysroot(
+    name = "cpp_toolchain",
+    label = "@confidential-federated-compute//:sysroot",
+    targets = ["linux-x86_64"],
+)
+use_repo(llvm, "cpp_toolchain")
+
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+
+# Download golang toolchains using the version in `go.mod`
+go_sdk.from_file(go_mod = "//tools/plugin:go.mod")
+
+go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
+go_deps.from_file(go_mod = "//tools/plugin:go.mod")
+use_repo(
+    go_deps,
+    "com_github_golang_protobuf",
+    "com_github_pseudomuto_protoc_gen_doc",
+)
+
+go_deps_dev = use_extension("@gazelle//:extensions.bzl", "go_deps", dev_dependency = True)
+go_deps_dev.module_override(
+    patch_strip = 1,
+    patches = [
+        "//tools/plugin:protoc-gen-doc.patch",
+    ],
+    path = "github.com/pseudomuto/protoc-gen-doc",
+)
+
+# Configure Rust toolchain
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = "2021",
+    versions = ["1.85.0"],
+)
+use_repo(rust, "rust_toolchains")
+
+register_toolchains("@rust_toolchains//:all")
+
+# Custom Prost toolchain
+register_toolchains(
+    "//toolchains:prost_toolchain",
+    "//toolchains:proto_toolchain",
+)
+
+register_toolchains("@rust_toolchains//:all")
+
+# Create a repo for all crates used by Cargo-enabled targets, under "crates"
+crate = use_extension(
+    "@rules_rust//crate_universe:extension.bzl",
+    "crate",
+)
+crate.spec(
+    package = "anyhow",
+    version = "1.0.89",
+)
+crate.spec(
+    package = "async-stream",
+    version = "0.3.5",
+)
+crate.spec(
+    package = "async-trait",
+    version = "0.1.89",
+)
+crate.spec(
+    package = "dashmap",
+    version = "6.1.0",
+)
+crate.spec(
+    package = "futures-core",
+    version = "0.3.30",
+)
+crate.spec(
+    package = "futures",
+    version = "0.3.30",
+)
+crate.spec(
+    package = "hyper-util",
+    version = "0.1.7",
+)
+crate.spec(
+    package = "prost",
+    version = "0.13.1",
+)
+crate.spec(
+    features = ["full"],
+    package = "tokio",
+    version = "1.39.3",
+)
+crate.spec(
+    package = "tokio-stream",
+    version = "0.1.15",
+)
+crate.spec(
+    features = ["transport"],
+    package = "tonic",
+    version = "0.12.1",
+)
+crate.spec(
+    features = ["util"],
+    package = "tower",
+    version = "0.5.0",
+)
+crate.spec(
+    package = "tokio-retry",
+    version = "0.3.0",
+)
+crate.spec(
+    default_features = False,
+    package = "prost-types",
+    version = "0.13.1",
+)
+crate.spec(
+    package = "protoc-gen-prost",
+    version = "0.4.0",
+)
+crate.annotation(
+    crate = "protoc-gen-prost",
+    gen_binaries = ["protoc-gen-prost"],
+)
+crate.spec(
+    package = "protoc-gen-tonic",
+    version = "0.4.0",
+)
+crate.annotation(
+    crate = "protoc-gen-tonic",
+    gen_binaries = ["protoc-gen-tonic"],
+)
+crate.spec(
+    package = "rand",
+    version = "0.8.5",
+)
+crate.spec(
+    package = "anyhow",
+    version = "1.0.89",
+)
+crate.spec(
+    features = [
+        "async_tokio",
+        "html_reports",
+        "cargo_bench_support",
+        "stable",
+    ],
+    package = "criterion",
+    version = "0.5.1",
+)
+crate.spec(
+    features = ["derive"],
+    package = "clap",
+    version = "4.5.20",
+)
+crate.spec(
+    package = "log",
+    version = "0.4.22",
+)
+crate.spec(
+    package = "memmap2",
+    version = "0.9.2",
+)
+crate.spec(
+    package = "once_cell",
+    version = "1.21.3",
+)
+crate.spec(
+    features = [
+        "sched",
+        "mount",
+        "fs",
+        "process",
+        "signal",
+    ],
+    package = "nix",
+    version = "0.30.1",
+)
+crate.spec(
+    package = "derivative",
+    version = "2.2.0",
+)
+crate.spec(
+    package = "async-stream",
+    version = "0.3.6",
+)
+crate.spec(
+    package = "trait-set",
+    version = "0.3.0",
+)
+crate.spec(
+    package = "proc-macro2",
+    version = "1.0.105",
+)
+crate.spec(
+    package = "quote",
+    version = "1.0.43",
+)
+crate.spec(
+    package = "syn",
+    version = "2.0.114",
+)
+crate.from_specs()
+use_repo(crate, "crates")
+
+oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
+oci.pull(
+    name = "isolate_runtime_ubuntu_base",
+    # runtime-debian-nondebug-nonroot-amd64, Mar 28, 2025
+    digest = "sha256:acf6c2fe4179cd5da18bcf433f0b62467c40f2a42dc821c08cc4ce2f7037813b",
+    image = "gcr.io/distroless/cc-debian12",
+)
+use_repo(oci, "isolate_runtime_ubuntu_base")
+
+# Prevent version skew by matching protoc version to protobuf version, as C++ is the only lang that
+# has no cross-version runtime guarantee:
+# https://protobuf.dev/support/cross-version-runtime-guarantee/#cpp
+protoc = use_extension("@toolchains_protoc//protoc:extensions.bzl", "protoc")
+protoc.toolchain(
+    google_protobuf = "com_google_protobuf",
+    version = "v29.3",
+)
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    ignore_root_user_error = True,
+    python_version = "3.13",
+)

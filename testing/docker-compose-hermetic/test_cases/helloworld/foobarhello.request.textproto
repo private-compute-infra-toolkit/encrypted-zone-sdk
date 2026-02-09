@@ -1,0 +1,3 @@
+# proto-file: examples/helloworld/proto/greeter.proto
+# proto-message: helloworld.HelloRequest
+name: "Foobar"

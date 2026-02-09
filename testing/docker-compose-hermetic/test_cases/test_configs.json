@@ -1,0 +1,126 @@
+{
+  "helloworld": {
+    "manifest_json_path": "examples/helloworld/main/ez_manifest.json",
+    "server_bundle_target": "examples/helloworld/main:helloworld_bundle",
+    "proto_descriptor_set": "greeter_proto_descriptor_set.pb",
+    "rpcs": [
+      {
+        "service_name": "Greeter",
+        "method_name": "SayHello",
+        "rpc_type": "unary"
+      },
+      {
+        "service_name": "Greeter",
+        "method_name": "StreamingSayHello",
+        "rpc_type": "streaming"
+      }
+    ]
+  },
+  "helloworld_rust": {
+    "manifest_json_path": "examples/helloworld/main/ez_manifest.json",
+    "server_bundle_target": "examples/helloworld_rust:helloworld_bundle",
+    "proto_descriptor_set": "greeter_proto_descriptor_set.pb",
+    "rpcs": [
+      {
+        "service_name": "Greeter",
+        "method_name": "SayHello",
+        "rpc_type": "unary"
+      },
+      {
+        "service_name": "Greeter",
+        "method_name": "StreamingSayHello",
+        "rpc_type": "streaming"
+      }
+    ]
+  },
+  "helloworld_edition": {
+    "manifest_json_path": "examples/helloworld_edition/main/ez_manifest.json",
+    "server_bundle_target": "examples/helloworld_edition/main:helloworld_bundle",
+    "proto_descriptor_set": "greeter_edition_proto_descriptor_set.pb",
+    "rpcs": [
+      {
+        "service_name": "Greeter",
+        "method_name": "SayHello",
+        "rpc_type": "unary"
+      },
+      {
+        "service_name": "Greeter",
+        "method_name": "StreamingSayHello",
+        "rpc_type": "streaming"
+      }
+    ]
+  },
+  "summation_by_looping_monolithic_server": {
+    "manifest_json_path": "examples/summation_by_looping_monolithic_server/server/summation_by_looping_monolithic_server_manifest.json",
+    "server_bundle_target": "examples/summation_by_looping_monolithic_server/server:summation_by_looping_monolithic_server_bundle",
+    "proto_descriptor_set": "summation_by_looping_monolithic_server_proto_descriptor_set.pb",
+    "rpcs": [
+      {
+        "service_name": "SimpleAdd",
+        "method_name": "IntegerSequence",
+        "rpc_type": "unary"
+      },
+      {
+        "service_name": "SimpleAdd",
+        "method_name": "StreamingIntegerSequence",
+        "rpc_type": "streaming"
+      },
+      {
+        "service_name": "CloneSimpleAdd",
+        "method_name": "CloneIntegerSequence",
+        "rpc_type": "unary"
+      }
+    ]
+  },
+  "summation_by_looping_with_backend": {
+    "manifest_json_path": "examples/summation_by_looping_with_backend/server/cpp/summation_by_looping_with_backend_manifest.json",
+    "server_bundle_target": "examples/summation_by_looping_with_backend/server/cpp:summation_by_looping_with_backend_server_bundle",
+    "proto_descriptor_set": "summation_by_looping_with_backend_proto_descriptor_set.pb",
+    "rpcs": [
+      {
+        "service_name": "SimpleAdd",
+        "method_name": "IntegerSequence",
+        "rpc_type": "unary"
+      },
+      {
+        "service_name": "SimpleAdd",
+        "method_name": "StreamingIntegerSequence",
+        "rpc_type": "streaming"
+      }
+    ]
+  },
+  "summation_by_looping_with_backend_rust": {
+    "manifest_json_path": "examples/summation_by_looping_with_backend/server/rust/summation_by_looping_with_backend_manifest.json",
+    "server_bundle_target": "examples/summation_by_looping_with_backend/server/rust:summation_by_looping_with_backend_server_bundle",
+    "proto_descriptor_set": "summation_by_looping_with_backend_proto_descriptor_set.pb",
+    "rpcs": [
+      {
+        "service_name": "SimpleAdd",
+        "method_name": "IntegerSequence",
+        "rpc_type": "unary"
+      },
+      {
+        "service_name": "SimpleAdd",
+        "method_name": "StreamingIntegerSequence",
+        "rpc_type": "streaming"
+      }
+    ]
+  },
+  "summation_by_lookup_table_with_backend": {
+    "manifest_json_path": "examples/summation_by_lookup_table_with_backend/server/summation_by_lookup_table_with_backend_manifest.json",
+    "server_bundle_target": "examples/summation_by_lookup_table_with_backend/server:summation_by_lookup_table_with_backend_server_bundle",
+    "proto_descriptor_set": "summation_by_lookup_table_with_backend_proto_descriptor_set.pb",
+    "rpcs": [
+      {
+        "service_name": "SimpleAdd",
+        "method_name": "IntegerSequence",
+        "rpc_type": "unary"
+      },
+      {
+        "service_name": "SimpleAdd",
+        "method_name": "StreamingIntegerSequence",
+        "rpc_type": "streaming"
+      }
+    ]
+  }
+}

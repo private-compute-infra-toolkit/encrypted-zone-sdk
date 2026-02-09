@@ -1,0 +1,142 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_proc_macro", "rust_test")
+
+rust_library(
+    name = "core",
+    srcs = glob(["src/*.rs"]),
+    crate_name = "rust_core",
+    proc_macro_deps = [
+        "@crates//:derivative",
+        "@crates//:trait-set",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//enforcer/v1:enforcer_rust",
+        "@crates//:anyhow",
+        "@crates//:async-stream",
+        "@crates//:futures",
+        "@crates//:hyper-util",
+        "@crates//:log",
+        "@crates//:once_cell",
+        "@crates//:prost",
+        "@crates//:rand",
+        "@crates//:tokio",
+        "@crates//:tokio-stream",
+        "@crates//:tonic",
+        "@crates//:tower",
+    ],
+)
+
+rust_proc_macro(
+    name = "core_macros",
+    srcs = ["macros/lib.rs"],
+    crate_name = "core_macros",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@crates//:proc-macro2",
+        "@crates//:quote",
+        "@crates//:syn",
+    ],
+)
+
+rust_library(
+    name = "test_utils",
+    testonly = True,
+    srcs = ["test/test_utils.rs"],
+    crate_name = "test_utils",
+    proc_macro_deps = [
+        "@crates//:derivative",
+    ],
+    deps = [
+        ":core",
+        "//enforcer/v1:enforcer_rust",
+        "@crates//:anyhow",
+        "@crates//:futures",
+        "@crates//:hyper-util",
+        "@crates//:tokio",
+        "@crates//:tokio-stream",
+        "@crates//:tonic",
+        "@crates//:tower",
+    ],
+)
+
+rust_test(
+    name = "isolate_server_test",
+    size = "small",
+    srcs = ["test/isolate_server_test.rs"],
+    # Add this line to enforce sequential execution
+    # This is important because we use global states
+    args = ["--test-threads=1"],
+    env = {
+        "CLIENT_UDS_PATH": "/dev/shm/ez_approver_test/test_client.uds",
+        "READY_FIFO_PATH": "/dev/shm/ez_approver_test/test_ready.fifo",
+        "SERVER_UDS_PATH": "/dev/shm/ez_approver_test/test_server.uds",
+    },
+    tags = ["exclusive"],
+    deps = [
+        ":core",
+        ":test_utils",
+        "//enforcer/v1:enforcer_rust",
+        "@crates//:anyhow",
+        "@crates//:futures",
+        "@crates//:nix",
+        "@crates//:once_cell",
+        "@crates//:tokio",
+        "@crates//:tokio-stream",
+        "@crates//:tonic",
+    ],
+)
+
+rust_test(
+    name = "isolate_client_test",
+    size = "small",
+    srcs = ["test/isolate_client_test.rs"],
+    # Add this line to enforce sequential execution
+    # This is important because we use global states
+    args = ["--test-threads=1"],
+    env = {
+        "CLIENT_UDS_PATH": "/dev/shm/ez_approver_test/test_client.uds",
+    },
+    tags = ["exclusive"],
+    deps = [
+        ":core",
+        ":test_utils",
+        "//core/rust/test/proto:test_message_rust",
+        "//enforcer/v1:enforcer_rust",
+        "@crates//:anyhow",
+        "@crates//:futures",
+        "@crates//:nix",
+        "@crates//:once_cell",
+        "@crates//:tokio",
+        "@crates//:tokio-stream",
+        "@crates//:tonic",
+    ],
+)
+
+rust_test(
+    name = "utils_test",
+    size = "small",
+    srcs = ["test/utils_test.rs"],
+    deps = [
+        ":core",
+        "//core/rust/test/proto:test_message_rust",
+        "//enforcer/v1:enforcer_rust",
+        "@crates//:prost",
+        "@crates//:tokio",
+        "@crates//:tokio-stream",
+        "@crates//:tonic",
+    ],
+)

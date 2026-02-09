@@ -1,0 +1,77 @@
+#!/bin/bash
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+set -o errexit
+
+readonly BUF_IMG=bufbuild/buf:1.58.0
+readonly JQ_IMG=ghcr.io/jqlang/jq:1.8.1
+
+# Default values
+declare REQUEST_TYPE=
+declare PROTO_FILE=
+
+function usage() {
+  local -i exitval=${1-1}
+  cat <<EOF
+Usage: $0 OPTION...
+
+Options:
+  --request-type   The fully qualified protobuf request message type.
+  --proto-file     The path to the .proto file defining the request type.
+  -h, --help       Display this help message.
+EOF
+  exit ${exitval}
+}
+
+# Parse command-line arguments
+while [[ $# -gt 0 ]]; do
+  key="$1"
+  case $key in
+    --request-type)
+      REQUEST_TYPE="$2"
+      shift 2 || usage
+      ;;
+    --proto-file)
+      PROTO_FILE="$2"
+      shift 2 || usage
+      ;;
+    -h|--help)
+      usage 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      usage
+      ;;
+  esac
+done
+
+if [[ -z ${REQUEST_TYPE} ]] || [[ -z ${PROTO_FILE} ]]; then
+  printf "Error: Missing required arguments." >&2
+  usage
+fi
+
+function buf() {
+  docker run --rm -i --volume="${PWD}":/work --workdir=/work "${BUF_IMG}" "$@"
+}
+
+function jq() {
+  docker run --rm -i "${JQ_IMG}" "$@"
+}
+
+jq -r .isolate_input.datagrams[0] \
+  | base64 --decode \
+  | buf convert "${PROTO_FILE}" --type="${REQUEST_TYPE}" --from=-#format=binpb --to=-#format=json \
+  | jq

@@ -1,0 +1,19 @@
+ExtraArgs:
+  - -Wno-unknown-warning-option
+  - -Wno-unused-result
+  - -Wno-macro-redefined
+  - -Wno-deprecated-declarations
+  - -Wno-unused-const-variable
+  - -Wno-format
+  - -Wno-unused-function
+  - -Wno-vla-cxx-extension
+
+Checks: >
+    -*,
+    abseil-*,
+    -abseil-no-namespace,
+    bugprone-*,
+    -bugprone-easily-swappable-parameters,
+    performance-*,
+
+WarningsAsErrors: '*'

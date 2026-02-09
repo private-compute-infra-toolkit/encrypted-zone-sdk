@@ -1,0 +1,39 @@
+{
+  "bumpFiles": [
+    {
+      "filename": "version.txt",
+      "type": "plain-text"
+    }
+  ],
+  "commitUrlFormat": " ",
+  "issueUrlFormat": " ",
+  "packageFiles": [
+    {
+      "filename": "version.txt",
+      "type": "plain-text"
+    }
+  ],
+  "tagPrefix": "rc-",
+  "types": [
+    { "type": "feat", "scope": "deps", "section": "Dependencies" },
+    { "type": "feat", "scope": "enforcer", "section": "EZ Policy Enforcer" },
+    { "type": "feat", "scope": "ez-to-ez", "section": "EZ-to-EZ" },
+    { "type": "feat", "scope": "gemini", "section": "Gemini" },
+    { "type": "feat", "scope": "github", "section": "GitHub" },
+    { "type": "feat", "scope": "vscode", "section": "VS Code" },
+    { "type": "feat", "section": "Features" },
+
+    { "type": "fix", "scope": "enforcer", "section": "EZ Policy Enforcer" },
+    { "type": "fix", "scope": "ez-to-ez", "section": "EZ-to-EZ" },
+    { "type": "fix", "scope": "gemini", "section": "Gemini" },
+    { "type": "fix", "scope": "github", "section": "GitHub" },
+    { "type": "fix", "scope": "vscode", "section": "VS Code" },
+    { "type": "fix", "section": "Bug Fixes" },
+
+    { "type": "docs", "section": "Documentation" },
+    { "type": "internal", "hidden": true },
+    { "type": "chore", "hidden": true },
+    { "type": "test", "hidden": true },
+    { "type": "refactor", "hidden": true }
+  ]
+}

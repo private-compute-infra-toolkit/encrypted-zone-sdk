@@ -1,0 +1,59 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+load("@rules_go//go:def.bzl", "go_binary")
+load("//tools/plugin/ez_protoc:ez_plugin.bzl", "ez_plugin")
+load("//tools/plugin/internal:ez_sdk.bzl", "default_templates_dir", "get_all_ez_sdk_plugins", "get_all_ez_server_bridge_plugins", "template_dir_name")
+
+genrule(
+    name = "gen_template_dir",
+    outs = ["template_dir.go"],
+    cmd = "echo 'package main\n\nconst templateDirName = \"{}\"' > $@".format(template_dir_name),
+)
+
+filegroup(
+    name = "ez_sdk_plugin_lib_srcs",
+    srcs = [
+        "ez_sdk.go",
+        "protoc_template_plugin.go",
+        ":template_dir.go",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+go_binary(
+    name = "ez_sdk_plugin",
+    srcs = [
+        ":ez_sdk_plugin_lib_srcs",
+    ],
+    importpath = "github.com/privacysandbox/ez/sdk/tools/plugin/cmd",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//enforcer/v1:options_go_proto",
+        "@com_github_golang_protobuf//proto:go_default_library",
+        "@com_github_golang_protobuf//protoc-gen-go/plugin",
+        "@com_github_pseudomuto_protoc_gen_doc//:go_default_library",
+        "@com_github_pseudomuto_protoc_gen_doc//extensions:go_default_library",
+    ],
+)
+
+[
+    ez_plugin(
+        name = plugin.name,
+        outputs = plugin.outputs,
+        templates = default_templates_dir,
+        visibility = ["//visibility:public"],
+    )
+    for plugin in get_all_ez_sdk_plugins() + get_all_ez_server_bridge_plugins()
+]

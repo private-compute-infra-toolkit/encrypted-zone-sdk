@@ -1,0 +1,393 @@
+#!/bin/bash
+
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+#
+# Environment variables (all optional):
+#   ENFORCER_BUILD_ARGS                additional args passed to enforcer build
+#   EXTRA_DOCKER_BUILDX_ARGS           additional args passed to `docker buildx build`
+#
+
+set -o pipefail
+set -o errexit
+export PS4='+\t $(basename ${BASH_SOURCE[0]}):${LINENO} ' # xtrace prompt
+
+declare -a -r DOCKER_COMPOSE_ARGS=()
+
+SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+readonly SCRIPT_DIR
+# shellcheck disable=SC1090
+source "${SCRIPT_DIR}"/lib_tests.sh
+ez_testing::init "${SCRIPT_DIR}"
+
+# Default test cases are all subdirectories of test_cases/
+declare -a DEFAULT_TEST_CASES=()
+mapfile -t DEFAULT_TEST_CASES < <(find "${SCRIPT_DIR}/test_cases" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) -exec test -d {} \; -printf '%f\n')
+declare -a TEST_CASES=()
+declare -a -r DISABLED_TEST_CASES=(
+  "summation_by_lookup_table_with_backend"  # Temporarily disabled until can run on Kokoro
+)
+
+declare -a DEFAULT_RPC_TYPES=(
+  "unary"
+  "streaming"
+)
+declare -a RPC_TYPES=()
+
+declare -i SKIP_LOAD_IMAGE=0
+declare SKIP_PERF_TESTS=""
+declare -g -x ENFORCER_TAR_PATH=""
+
+trap _cleanup EXIT
+function _cleanup() {
+  declare -r -i status=$?
+  printf "Cleaning up\n"
+  if [[ -v KOKORO_ARTIFACTS_DIR ]]; then
+    sleep 5s
+  fi
+  if [[ ${status} -ne 0 ]]; then
+    printf "Error: run-tests status code: %d\n" "${status}" &>/dev/stderr
+  fi
+  if [[ -s ${EZ_ENV_FILE} ]]; then
+    rm "${EZ_ENV_FILE}"
+  fi
+
+  if [[ -s "${SCRIPT_DIR}/test_cases/BUILD.sut" ]]; then
+    rm "${SCRIPT_DIR}/test_cases/BUILD.sut"
+  fi
+  if [[ -s "${SCRIPT_DIR}/testrunner.textproto" ]]; then
+    rm "${SCRIPT_DIR}/testrunner.textproto"
+  fi
+
+  mapfile -t yaml_files < <(find "${SCRIPT_DIR}" -maxdepth 1 -type f -name 'docker-compose.*.yaml' ! -name 'docker-compose.yaml.template')
+  if [[ ${#yaml_files[@]} -gt 0 ]]; then
+    rm -f "${yaml_files[@]}"
+  fi
+
+  # shellcheck disable=SC2153
+  rm -rf "${SDK_WORKSPACE}"/"${SUT_PATH}"/*.{json,tar}
+
+  # This stacktrace code is largely taken from:
+  # https://opensource.com/article/22/7/print-stack-trace-bash-scripts
+  #
+  # Only log if this was both an error status (!=0) and it was unexpected
+  # (i.e. not part of an 'if' statement, this is what $- does).
+  if [[ $- =~ e && ${status} != 0 ]]
+  then
+      printf "\n========= CATASTROPHIC COMMAND FAIL =========\n\n"
+      printf "SCRIPT EXITED ON ERROR CODE: %s\n\n" "${status}"
+      LEN=${#BASH_LINENO[@]}
+      for (( INDEX=0; INDEX<LEN-1; INDEX++ ))
+      do
+          printf -- "---\n"
+          printf "FILE: %s\n" "$(basename "${BASH_SOURCE[${INDEX}+1]}")"
+          printf "  FUNCTION: %s\n" "${FUNCNAME[${INDEX}+1]}"
+          if [[ ${INDEX} -gt 0 ]]
+          then
+              printf "  STACK COMMAND: %s\n" "${FUNCNAME[${INDEX}]}"
+              printf "  STACK LINE: %s\n" "${BASH_LINENO[${INDEX}]}"
+          else
+              printf "  FAILED COMMAND: %s\n" "${BASH_COMMAND}"
+              printf "  FAILED LINE: %s\n" "${ERRO_LINENO}"
+          fi
+      done
+      printf "\n======= END CATASTROPHIC COMMAND FAIL =======\n\n"
+  fi
+  exit ${status}
+}
+
+function usage() {
+  declare -r -i exitval=$?
+  cat &>/dev/stderr <<USAGE
+usage:
+  $0 [options] --enforcer_tar_path <path>
+options:
+    --test-case | -t   Run a specific test case (default: all test cases)
+                       Can be specified multiple times to run multiple test cases
+    --rpc-type | -r   Run a specific rpc type (unary, streaming | default: both unary and streaming)
+                       Can be specified multiple times to run multiple rpc types
+    --skip-perf-tests  unary|streaming   Skip running the specified type of performance tests, default: run perf tests
+    --skip-load-image  Skip building and loading functionaltest image
+    --enforcer-tar-path   Path to enforcer tar file (required)
+    --verbose        Produce verbose output
+
+USAGE
+  exit ${exitval}
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --skip-load-image)
+      # shellcheck disable=SC2034
+      SKIP_LOAD_IMAGE=1
+      shift
+      ;;
+    --test-case | -t)
+      if [[ -z $2 ]]; then
+        printf "Error: --test-case requires an argument\n" &>/dev/stderr
+        usage 1
+      fi
+      if [[ ! " ${DEFAULT_TEST_CASES[*]} " =~ $2 ]]; then
+        printf "Error: unrecognized test_case: %s\n" "$2" &>/dev/stderr
+        printf "Supported test cases: %s\n" "${DEFAULT_TEST_CASES[*]}" &>/dev/stderr
+        usage 1
+      fi
+      TEST_CASES+=("$2")
+      shift 2
+      ;;
+    --rpc-type | -r)
+      if [[ -z $2 ]]; then
+        printf "Error: --rpc-type requires an argument\n" &>/dev/stderr
+        usage 1
+      fi
+      if [[ ! " ${DEFAULT_RPC_TYPES[*]} " =~ $2 ]]; then
+        printf "Error: unrecognized rpc_type: %s\n" "$2" &>/dev/stderr
+        printf "Supported rpc types: %s\n" "${DEFAULT_RPC_TYPES[*]}" &>/dev/stderr
+        usage 1
+      fi
+      RPC_TYPES+=("$2")
+      shift 2
+      ;;
+    --skip-perf-tests)
+      if [[ -z $2 || $2 == -* ]]; then
+        SKIP_PERF_TESTS="unary streaming"
+        shift
+      elif [[ "$2" != "unary" && "$2" != "streaming" ]]; then
+        printf "Error: --skip-perf-tests requires 'unary' or 'streaming' as an argument\n" &>/dev/stderr
+        usage 1
+      else
+        SKIP_PERF_TESTS="$2"
+        shift 2
+      fi
+      ;;
+    --verbose)
+      set -o xtrace
+      shift
+      ;;
+    --enforcer-tar-path)
+      ENFORCER_TAR_PATH="$2"
+      shift 2
+      ;;
+    -h | --help) usage 0 ;;
+    *)
+      printf "unrecognized arg: %s\n" "$1"
+      usage
+      ;;
+  esac
+done
+
+if [[ -z ${ENFORCER_TAR_PATH} ]]; then
+  printf "Error: --enforcer-tar-path is required\n" &>/dev/stderr
+  usage 1
+fi
+
+if [[ ${#TEST_CASES[@]} -eq 0 ]]; then
+  for test_case in "${DEFAULT_TEST_CASES[@]}"; do
+    if [[ " ${DISABLED_TEST_CASES[*]} " =~ ${test_case} ]]; then
+      printf "Skipping disabled test case: %s\n" "${test_case}"
+      continue
+    fi
+    TEST_CASES+=("${test_case}")
+  done
+fi
+if [[ ${#RPC_TYPES[@]} -eq 0 ]]; then
+  RPC_TYPES=("${DEFAULT_RPC_TYPES[@]}")
+fi
+
+function build_and_test_sut() {
+  declare -r sut_path="$1"; shift
+  declare -r enforcer_image="$1"; shift
+  declare -r sut_relpath="${sut_path}"
+  declare -r dist_dir="${SDK_WORKSPACE}/dist/tests/${sut_path}"
+  mkdir -p "${dist_dir}"
+  chmod 644 "${SDK_WORKSPACE}/${sut_relpath}"/*{tar,json}
+  pushd "${SDK_WORKSPACE}" &>/dev/null
+  "${DEVKIT}"/build bazel run "//${sut_path}:copy_to_dist"
+  popd &>/dev/null
+  local -r TMP_OUTPUT_DIR="$(mktemp --directory "${dist_dir}/tempXXXXXX")"
+
+  declare -a containers=()
+  declare -a compose_args=(
+    "${DOCKER_COMPOSE_ARGS[@]}"
+  )
+  for test_case in "${TEST_CASES[@]}"; do
+    containers+=("${test_case}-sut")
+    compose_args+=("--file=${SDK_WORKSPACE}/${sut_relpath}/docker-compose.${test_case}.yaml")
+  done
+
+  function cleanup() {
+    # Remove test cases copied into SUT_PATH
+    ez_testing::docker_compose_cleanup "$@"
+  }
+  # expand compose_args now rather than when trap is invoked
+  # shellcheck disable=SC2064
+  trap "cleanup ${compose_args[*]@Q}" RETURN
+
+  # Clean up any containers from a previous, possibly failed, run to ensure a hermetic environment.
+  docker compose "${compose_args[@]}" down --remove-orphans
+
+  docker compose "${compose_args[@]}" up --detach
+  for container in "${containers[@]}"; do
+    docker compose "${compose_args[@]}" logs "${container}" --until=-5m --follow >"${TMP_OUTPUT_DIR}/${container}.log" &
+  done
+
+  docker run \
+    --network=ez-local-functest \
+    --user "$(id -u):$(id -g)" \
+    --env=USER \
+    --env=HOME=/tmp \
+    --volume="${dist_dir}"/sut_ez.zip:/sut.zip \
+    --volume="${TMP_OUTPUT_DIR}":/out \
+    "${FUNCTIONALTEST_CLI}" \
+    dockersut \
+    deploy-and-test \
+    --sut-zip /sut.zip \
+    --output-dir=/out
+}
+
+ez_testing::ensure_docker_compose
+
+declare enforcer_image
+ez_testing::load_enforcer_server enforcer_image
+
+if [[ ${SKIP_LOAD_IMAGE} -eq 0 ]]; then
+  FUNCTIONALTEST_VERSION="$(<"${SDK_WORKSPACE}"/functionaltest-system/version.txt)"
+  readonly FUNCTIONALTEST_VERSION
+  declare -r FUNCTIONALTEST_CLI="privacysandbox/functionaltest/functionaltest-cli:${FUNCTIONALTEST_VERSION}"
+  ez_testing::build_functionaltest_cli "${FUNCTIONALTEST_CLI}"
+fi
+
+# Read test configurations directly from JSON file
+readonly TEST_CONFIGS_JSON="${SCRIPT_DIR}/test_cases/test_configs.json"
+
+if [[ ! -f ${TEST_CONFIGS_JSON} ]]; then
+  printf "Error: test_configs.json not found at %s\n" "${TEST_CONFIGS_JSON}" >/dev/stderr
+  exit 1
+fi
+
+declare test_targets=""
+declare streaming_perf_targets=""
+declare perf_targets=""
+declare endpoints=""
+export ENFORCER_IMAGE="${enforcer_image}"
+declare -i port=4000
+declare config_json=""
+declare proto_descriptor_set=""
+declare manifest_json_path=""
+declare method_name=""
+declare service_name=""
+for test_case in "${TEST_CASES[@]}"; do
+  config_json=$("${DEVKIT}"/jq ".${test_case}" < "${TEST_CONFIGS_JSON}")
+  if [[ -z ${config_json} ]]; then
+    printf "Error: No configuration found for test case: %s\n" "${test_case}" >/dev/stderr
+    exit 1
+  fi
+  read -r server_bundle_target proto_descriptor_set manifest_json_path rpcs < <(echo "${config_json}" | "${DEVKIT}"/jq -r '"\(.server_bundle_target) \(.proto_descriptor_set) \(.manifest_json_path) \(.rpcs)"')
+  manifest_json_path="${SDK_WORKSPACE}/${manifest_json_path}"
+  bundle_dir="${server_bundle_target%:*}"
+  export BUNDLE_DIR="${bundle_dir//\//_}"
+  export BUNDLE_NAME="${server_bundle_target#*:}"
+  export HOSTNAME="enforcer_${test_case}"
+  export PORT=$((port++))
+  if [[ ${test_case} == "helloworld" ]]; then
+    export EXTRA_ENFORCER_ARGS="- --common-bind-mount=/dev/null:/outputfile"
+  else
+    export EXTRA_ENFORCER_ARGS=""
+  fi
+  export SUT_NAME="${test_case}-sut"
+
+  # shellcheck disable=SC2155
+  export MANIFEST_NAME=$(basename "${manifest_json_path}")
+  cp -n "${manifest_json_path}" "${SDK_WORKSPACE}/${SUT_PATH}/${MANIFEST_NAME}"
+
+  envsubst < "${SCRIPT_DIR}/docker-compose.yaml.template" > "${SCRIPT_DIR}/docker-compose.${test_case}.yaml"
+
+  ez_testing::build_isolate "${server_bundle_target}"
+
+  # Initialize empty rpcs array for endpoint
+  rpc_arr=""
+
+  # Process each rpc in the array - iterate through array indices
+  rpcs_length=$(echo "${rpcs}" | "${DEVKIT}"/jq 'length')
+  for ((i=0; i<rpcs_length; i++)); do
+    #shellcheck disable=SC2016
+    read -r method_name service_name rpc_type < <(echo "${rpcs}" | "${DEVKIT}"/jq --argjson idx "${i}" -r '.[$idx] | "\(.method_name) \(.service_name) \(.rpc_type)"')
+
+    if [[ ! " ${RPC_TYPES[*]} " =~ ${rpc_type} ]]; then
+      continue
+    fi
+
+        # Add to rpcs array
+    rpc_arr+="        (
+            \"${test_case}\",
+            \"small\",
+            \"//:data/${proto_descriptor_set}\",
+            \"${method_name}\",
+            \"${service_name}\",
+            \"${rpc_type}\",
+        ),
+"
+
+    test_targets+="      test_targets: \"//test_cases:${test_case}-${method_name}-diff-${rpc_type}\""$'\n'
+    if [[ "${rpc_type}" == "streaming" && ! " ${SKIP_PERF_TESTS} " =~ " streaming " ]]; then
+      streaming_perf_targets+="      test_targets: \"//test_cases:${test_case}-${method_name}-grpc-ghz-${rpc_type}\""$'\n'
+    fi
+    if [[ "${rpc_type}" == "unary" && ! " ${SKIP_PERF_TESTS} " =~ " unary " ]]; then
+      perf_targets+="      test_targets: \"//test_cases:${test_case}-${method_name}-grpc-ghz-${rpc_type}\""$'\n'
+    fi
+  done
+
+    # Remove trailing newline from rpcs
+    rpc_arr="${rpc_arr%$'\n'}"
+
+    endpoint=$(cat <<EOF_STARLARK
+  endpoint(
+    docker_network = "ez-local-functest",
+    endpoint_type = "grpc",
+    host = "${HOSTNAME}",
+    port = ${PORT},
+    rpcs = [
+${rpc_arr}
+    ],
+  ),
+EOF_STARLARK
+    )
+
+  # Add to endpoints array
+  endpoints+="${endpoint}"
+done
+
+declare ENDPOINTS='[
+'"${endpoints}"'
+]'
+
+ENDPOINTS="exposed_endpoints = ${ENDPOINTS}"
+# Use printf to preserve newlines in ENDPOINTS and STREAMING_ENDPOINTS
+printf -v ENDPOINTS_ESC "%s" "${ENDPOINTS}"
+
+sed -e "/__ENDPOINTS__/{
+  r /dev/stdin
+  d
+}" "${SCRIPT_DIR}/test_cases/BUILD.template" \
+  < <(printf "%s" "${ENDPOINTS_ESC}") \
+  > "${SCRIPT_DIR}/test_cases/BUILD.sut"
+
+
+export TEST_TARGETS="${test_targets}"
+export STREAMING_PERF_TESTS="${streaming_perf_targets}"
+export PERF_TESTS="${perf_targets}"
+envsubst < "${SCRIPT_DIR}/testrunner.textproto.template" > "${SCRIPT_DIR}/testrunner.textproto"
+
+build_and_test_sut "${SUT_PATH}" "${enforcer_image}"

@@ -1,0 +1,44 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package precomputed_backend;
+
+import "enforcer/v1/options.proto";
+
+option java_multiple_files = true;
+option java_outer_classname = "PrecomputedBackendProto";
+option java_package = "io.grpc.playground.precomputed_backend";
+
+// TODO: Add protobuf annotations for auto-generator when ready.
+
+// Example "backend" service that returns a precomputed table.
+service PrecomputedBackend {
+  option (enforcer.v1.ez_svc_annotation) = {};
+
+  rpc FetchTable(FetchTableRequest) returns (FetchTableResponse) {
+    option (enforcer.v1.ez_rpc_annotation) = {name: "FetchTable"};
+  }
+  rpc StreamingFetchTable(stream FetchTableRequest) returns (stream FetchTableResponse) {
+    option (enforcer.v1.ez_rpc_annotation) = {name: "StreamingFetchTable"};
+  }
+}
+message FetchTableRequest {
+  // Nothing here yet
+}
+message FetchTableResponse {
+  // Nothing here yet, although a pointer to the table will be attached by
+  // the EZ control plane. Soon protobuf annotations will make this explicit.
+}

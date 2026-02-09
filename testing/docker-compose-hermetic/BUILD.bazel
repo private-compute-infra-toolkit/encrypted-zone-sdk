@@ -1,0 +1,56 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+load("@google_privacysandbox_functionaltest_system//sut:sut.bzl", "sut")
+
+sut(
+    name = "sut_ez",
+    custom_file_mappings = {
+        ".env": "docker-compose.env",
+        "docker_image_": "docker_images/",
+        "enforcer/v1/enforcer_descriptor_set.pb": "data/enforcer_descriptor_set.pb",
+        "examples/helloworld/proto/greeter_proto_descriptor_set.pb": "data/greeter_proto_descriptor_set.pb",
+        "examples/helloworld_edition/proto/greeter_proto_descriptor_set.pb": "data/greeter_edition_proto_descriptor_set.pb",
+        "examples/summation_by_lookup_table_with_backend/proto/summation_proto_descriptor_set.pb": "data/summation_by_lookup_table_with_backend_proto_descriptor_set.pb",
+        "examples/summation_by_looping_monolithic_server/proto/summation_proto_descriptor_set.pb": "data/summation_by_looping_monolithic_server_proto_descriptor_set.pb",
+        "examples/summation_by_looping_with_backend/proto/summation_proto_descriptor_set.pb": "data/summation_by_looping_with_backend_proto_descriptor_set.pb",
+    },
+    sut_labels = [
+        "//enforcer/v1:enforcer_descriptor_set",
+        "//examples/helloworld/proto:greeter_proto_descriptor_set",
+        "//examples/helloworld_edition/proto:greeter_proto_descriptor_set",
+        "//examples/summation_by_looping_monolithic_server/proto:summation_proto_descriptor_set",
+        "//examples/summation_by_looping_with_backend/proto:summation_proto_descriptor_set",
+        "//examples/summation_by_lookup_table_with_backend/proto:summation_proto_descriptor_set",
+    ],
+)
+
+genrule(
+    name = "copy_to_dist",
+    srcs = [
+        ":sut_ez",
+    ],
+    outs = ["copy_to_dist.bin"],
+    cmd_bash = """cat <<EOF >'$@'
+#!/bin/bash
+set -o xtrace
+
+declare -r DESTDIR="dist/tests/testing/$$(basename $(RULEDIR))"
+mkdir -p "\\$${DESTDIR}"
+cp -f $(execpath :sut_ez) "\\$${DESTDIR}"
+EOF""",
+    executable = True,
+    local = True,
+    message = "copy functionaltest-v2 sut artifact to the dist directory",
+)

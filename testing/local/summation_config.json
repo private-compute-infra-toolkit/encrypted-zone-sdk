@@ -1,0 +1,32 @@
+{
+  "manifest_json_path": "examples/summation_by_looping_with_backend/server/summation_by_looping_with_backend_manifest.json",
+  "rpc": "StreamingIntegerSequence",
+  "rpc_type": "STREAMING",
+  "proto_file": "examples/summation_by_looping_with_backend/proto/summation.proto",
+  "requests": [
+    {
+      "start_at": 1,
+      "end_at": 10
+    },
+    {
+      "start_at": 11,
+      "end_at": 20
+    },
+    {
+      "start_at": 21,
+      "end_at": 30
+    },
+    {
+      "start_at": 31,
+      "end_at": 40
+    },
+    {
+      "start_at": 41,
+      "end_at": 50
+    },
+    {
+      "start_at": 1,
+      "end_at": 50
+    }
+  ]
+}

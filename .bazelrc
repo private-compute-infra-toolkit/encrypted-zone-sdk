@@ -1,0 +1,80 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+common --enable_bzlmod
+common --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+common --experimental_proto_descriptor_sets_include_source_info
+
+build --announce_rc
+build --verbose_failures
+build --compilation_mode=opt
+build --color=yes
+build --config=cpp
+build --config=rustfmt
+build --config=clippy
+
+build:cpp --verbose_failures
+build:cpp --config=noexcept
+build:cpp --config=cpp_nowarn
+
+# Address sanitizer, set action_env to segregate cache entries
+build:asan --strip=never
+build:asan --compilation_mode=dbg
+build:asan --copt=-fsanitize=address
+build:asan --copt=-DADDRESS_SANITIZER
+build:asan --copt=-O1
+build:asan --copt=-g
+build:asan --copt=-fno-omit-frame-pointer
+build:asan --linkopt=-fsanitize=address
+build:asan --linkopt=-fuse-ld=lld
+build:asan --action_env=ASAN_OPTIONS=detect_leaks=1:color=always:print_stacktrace=1
+build:asan --custom_malloc=@bazel_tools//tools/cpp:malloc
+build:asan --fission=yes
+
+# Broadly disable C++ Exceptions
+# https://google.github.io/styleguide/cppguide.html#Exceptions
+build:noexcept --copt=-fno-exceptions
+
+build:cpp_nowarn --copt=-Werror
+build:cpp_nowarn --per_file_copt=external/.*@-Wno-error
+
+build --incompatible_strict_action_env
+build --strip=always
+try-import %workspace%/google_internal/.bazelrc
+
+try-import %workspace%/.bazelrc.clang
+
+build:run_all_tests --cache_test_results=no
+
+test --test_output=errors
+test --test_verbose_timeout_warnings
+# b/392436940 - Make rust_test --nocapture by default
+test --test_env=RUST_TEST_NOCAPTURE=1
+
+# Clippy
+build:clippy --aspects=@rules_rust//rust:defs.bzl%rust_clippy_aspect
+build:clippy --output_groups=+clippy_checks
+
+# Rustfmt
+build:rustfmt --@rules_rust//rust/settings:rustfmt.toml=//:.rustfmt.toml
+build:rustfmt --aspects=@rules_rust//rust:defs.bzl%rustfmt_aspect
+build:rustfmt --output_groups=+rustfmt_checks
+
+# Rust analyzer
+build --@rules_rust//:rustc_output_diagnostics=true --output_groups=+rust_lib_rustc_output,+rust_metadata_rustc_output
+
+build:clang-tidy --aspects @bazel_clang_tidy//clang_tidy:clang_tidy.bzl%clang_tidy_aspect
+build:clang-tidy --output_groups=report
+build:clang-tidy --@bazel_clang_tidy//:clang_tidy_config=//:clang_tidy_config
+build --extra_toolchains=@cpp_toolchain//:all

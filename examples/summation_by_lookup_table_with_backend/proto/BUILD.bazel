@@ -1,0 +1,103 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
+load("@rules_proto//proto:defs.bzl", "proto_descriptor_set")
+load("@rules_proto_grpc_cpp//:defs.bzl", "cpp_grpc_library")
+load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
+load(
+    "//tools/plugin:ez_sdk.bzl",
+    "ez_isolate_service_cc",
+)
+
+proto_library(
+    name = "summation_proto",
+    srcs = ["summation.proto"],
+    visibility = ["//visibility:public"],
+    deps = ["//enforcer/v1:options_proto"],
+)
+
+proto_descriptor_set(
+    name = "summation_proto_descriptor_set",
+    visibility = ["//visibility:public"],
+    deps = [":summation_proto"],
+)
+
+cpp_grpc_library(
+    name = "summation_grpc_proto",
+    protos = [":summation_proto"],
+    visibility = ["//visibility:public"],
+    deps = ["//enforcer/v1:options_cc_proto"],
+)
+
+cc_proto_library(
+    name = "summation_cc_proto",
+    visibility = ["//visibility:public"],
+    deps = [":summation_proto"],
+)
+
+ez_isolate_service_cc(
+    name = "summation_service",
+    cc_protos = [":summation_cc_proto"],
+    proto_basename = "summation",
+    protos = [":summation_proto"],
+    visibility = ["//visibility:public"],
+)
+
+rust_prost_library(
+    name = "summation_rust_proto",
+    proto = ":summation_proto",
+    visibility = ["//visibility:public"],
+)
+
+proto_library(
+    name = "precomputed_backend_proto",
+    srcs = ["precomputed_backend.proto"],
+    visibility = ["//visibility:public"],
+    deps = ["//enforcer/v1:options_proto"],
+)
+
+proto_descriptor_set(
+    name = "precomputed_backend_proto_descriptor_set",
+    visibility = ["//visibility:public"],
+    deps = [":precomputed_backend_proto"],
+)
+
+cpp_grpc_library(
+    name = "precomputed_backend_grpc_proto",
+    protos = [":precomputed_backend_proto"],
+    visibility = ["//visibility:public"],
+    deps = ["//enforcer/v1:options_cc_proto"],
+)
+
+cc_proto_library(
+    name = "precomputed_backend_cc_proto",
+    visibility = ["//visibility:public"],
+    deps = [":precomputed_backend_proto"],
+)
+
+ez_isolate_service_cc(
+    name = "precomputed_backend_service",
+    cc_protos = [":precomputed_backend_cc_proto"],
+    proto_basename = "precomputed_backend",
+    protos = [":precomputed_backend_proto"],
+    visibility = ["//visibility:public"],
+)
+
+rust_prost_library(
+    name = "precomputed_backend_rust_proto",
+    proto = ":precomputed_backend_proto",
+    visibility = ["//visibility:public"],
+)
