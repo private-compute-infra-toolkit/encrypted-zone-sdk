@@ -17,6 +17,9 @@
 #ifndef ISOLATE_EZ_BRIDGE_CLIENT_H
 #define ISOLATE_EZ_BRIDGE_CLIENT_H
 
+#include <grpcpp/client_context.h>
+#include <grpcpp/support/status.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -24,13 +27,16 @@
 #include <memory>
 #include <string>
 
-#include <grpcpp/grpcpp.h>
-#include <grpcpp/support/status.h>
-
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "core/cpp/src/mem_share_response.h"
 #include "enforcer/v1/isolate_ez_bridge.pb.h"
 #include "enforcer/v1/isolate_state.pb.h"
+
+namespace grpc {
+// Declaration for grpc::Status ostream operator
+std::ostream& operator<<(std::ostream& os, const grpc::Status& status);
+}  // namespace grpc
 
 namespace IsolateEzBridgeSdk {
 
@@ -66,6 +72,9 @@ class IsolateEzBridgeClient {
   static IsolateEzBridgeClient& GetInstance();
   static void SetUdsAddress(std::string path);
   static void SetReadySignalPath(std::string path);
+  // For testing only. If set, GetInstance() will return this instance instead
+  // of default singleton.
+  static void SetInstanceForTesting(IsolateEzBridgeClient* instance);
 
   absl::Status ProcessReceivedSharedMemoryHandle(
       const std::string& shared_memory_handle);
@@ -104,7 +113,7 @@ class IsolateEzBridgeClient {
       const std::string& service_name, const std::string& method_name,
       const std::string& ez_instance_id, const std::string& request_bytes,
       std::string* response_bytes,
-      std::function<void(grpc::Status)> callback) = 0;
+      absl::AnyInvocable<void(grpc::Status) &&> callback) = 0;
 
   virtual std::unique_ptr<::grpc::ClientReaderWriter<
       ::enforcer::v1::InvokeEzRequest, ::enforcer::v1::InvokeEzResponse>>

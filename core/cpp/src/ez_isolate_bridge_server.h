@@ -17,6 +17,13 @@
 #ifndef EZ_ISOLATE_BRIDGE_SERVER_H
 #define EZ_ISOLATE_BRIDGE_SERVER_H
 
+#include <grpcpp/server.h>
+#include <grpcpp/server_context.h>
+#include <grpcpp/support/server_callback.h>
+#include <grpcpp/support/status.h>
+
+#include <atomic>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -24,11 +31,10 @@
 #include <unordered_map>
 #include <vector>
 
-#include <grpcpp/grpcpp.h>
-
-#include "core/cpp/src/isolate_ez_bridge_client.h"
+#include "absl/functional/any_invocable.h"
 #include "enforcer/v1/ez_isolate_bridge.grpc.pb.h"
 #include "enforcer/v1/ez_isolate_bridge.pb.h"
+#include "google/protobuf/repeated_ptr_field.h"
 
 namespace EzIsolateBridgeSdk {
 
@@ -42,9 +48,11 @@ void CreateInvalidArgumentResponse(const std::string& message,
                                    InvokeIsolateResponse& response);
 
 class IsolateRpcService;
-void ForwardRequest(std::shared_ptr<IsolateRpcService> isolate_rpc_service,
+void ForwardRequest(grpc::CallbackServerContext* context,
+                    std::shared_ptr<IsolateRpcService> isolate_rpc_service,
                     const InvokeIsolateRequest& request,
-                    InvokeIsolateResponse& response);
+                    InvokeIsolateResponse& response,
+                    absl::AnyInvocable<void(grpc::Status) &&> done);
 
 template <typename T>
 std::optional<T> MergeProtobin(
@@ -73,11 +81,12 @@ class ResponseWriter {
 class IsolateRpcService {
  public:
   virtual ~IsolateRpcService() = default;
-  virtual grpc::Status IsolateRpcMethodHandler(
-      const std::string& method_name,
+  virtual void IsolateRpcMethodHandler(
+      grpc::CallbackServerContext* context, const std::string& method_name,
       const google::protobuf::RepeatedPtrField<std::string>& request_bytes,
       std::string& response_bytes,
-      std::vector<std::string>& response_shared_memory_handles) = 0;
+      std::vector<std::string>& response_shared_memory_handles,
+      absl::AnyInvocable<void(grpc::Status) &&> done) = 0;
   virtual grpc::Status IsolateStreamRpcMethodHandler(
       uintptr_t stream_id, const InvokeIsolateRequest& invoke_isolate_request,
       ResponseWriter* invoke_isolate_resp_writer,

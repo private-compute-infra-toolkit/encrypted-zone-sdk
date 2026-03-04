@@ -12,39 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@rules_go//go:def.bzl", "go_binary")
+load("@pypi//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_python//python:pip.bzl", "compile_pip_requirements")
 load("//tools/plugin/ez_protoc:ez_plugin.bzl", "ez_plugin")
-load("//tools/plugin/internal:ez_sdk.bzl", "default_templates_dir", "get_all_ez_sdk_plugins", "get_all_ez_server_bridge_plugins", "template_dir_name")
+load("//tools/plugin/internal:ez_sdk.bzl", "default_templates_dir", "get_all_ez_sdk_plugins", "get_all_ez_server_bridge_plugins")
 
-genrule(
-    name = "gen_template_dir",
-    outs = ["template_dir.go"],
-    cmd = "echo 'package main\n\nconst templateDirName = \"{}\"' > $@".format(template_dir_name),
-)
-
-filegroup(
-    name = "ez_sdk_plugin_lib_srcs",
-    srcs = [
-        "ez_sdk.go",
-        "protoc_template_plugin.go",
-        ":template_dir.go",
-    ],
-    visibility = ["//visibility:public"],
-)
-
-go_binary(
+py_binary(
     name = "ez_sdk_plugin",
-    srcs = [
-        ":ez_sdk_plugin_lib_srcs",
-    ],
-    importpath = "github.com/privacysandbox/ez/sdk/tools/plugin/cmd",
+    srcs = ["ez_sdk.py"],
+    main = "ez_sdk.py",
     visibility = ["//visibility:public"],
     deps = [
-        "//enforcer/v1:options_go_proto",
-        "@com_github_golang_protobuf//proto:go_default_library",
-        "@com_github_golang_protobuf//protoc-gen-go/plugin",
-        "@com_github_pseudomuto_protoc_gen_doc//:go_default_library",
-        "@com_github_pseudomuto_protoc_gen_doc//extensions:go_default_library",
+        "//enforcer/v1:options_py_proto",
+        "@pypi//jinja2",
+        "@pypi//protobuf",
     ],
 )
 
@@ -57,3 +39,10 @@ go_binary(
     )
     for plugin in get_all_ez_sdk_plugins() + get_all_ez_server_bridge_plugins()
 ]
+
+# To re-freeze dependencies after changing requirements.in, run: devkit/build bazel run //tools/plugin:requirements.update
+compile_pip_requirements(
+    name = "requirements",
+    src = "requirements.in",
+    requirements_txt = "requirements_lock.txt",
+)

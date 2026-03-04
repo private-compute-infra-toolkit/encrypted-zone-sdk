@@ -14,15 +14,13 @@
 
 load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
 load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
+load("@com_google_protobuf//bazel:py_proto_library.bzl", "py_proto_library")
 load("@rules_buf//buf:defs.bzl", "buf_lint_test")
-load("@rules_go//proto:def.bzl", "go_proto_library")
 load("@rules_proto//proto:defs.bzl", "proto_descriptor_set")
 load("@rules_proto_grpc_cpp//:defs.bzl", "cpp_grpc_library")
 load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
 
 package(default_visibility = ["//visibility:public"])
-
-go_importpath = "github.com/privacysandbox/ez/sdk/v1"
 
 proto_library(
     name = "options_proto",
@@ -36,35 +34,6 @@ proto_library(
     ],
 )
 
-buf_lint_test(
-    name = "options_lint",
-    size = "small",
-    config = "//:buf.yaml",
-    targets = [":options_proto"],
-)
-
-cc_proto_library(
-    name = "options_cc_proto",
-    visibility = ["//visibility:public"],
-    deps = [":options_proto"],
-)
-
-go_proto_library(
-    name = "options_go_proto",
-    importpath = go_importpath,
-    protos = [
-        ":data_scope_proto",
-        ":options_proto",
-    ],
-    visibility = ["//visibility:public"],
-)
-
-proto_descriptor_set(
-    name = "options_descriptor_set",
-    visibility = ["//visibility:public"],
-    deps = [":options_proto"],
-)
-
 proto_library(
     name = "data_scope_proto",
     srcs = [
@@ -72,13 +41,6 @@ proto_library(
         "ez_data_scope.proto",
     ],
     visibility = ["//visibility:public"],
-)
-
-buf_lint_test(
-    name = "data_scope_lint",
-    size = "small",
-    config = "//:buf.yaml",
-    targets = [":data_scope_proto"],
 )
 
 proto_library(
@@ -92,17 +54,9 @@ proto_library(
         "isolate_ez_bridge.proto",
         "isolate_health.proto",
         "isolate_state.proto",
-        "status.proto",
     ],
     visibility = ["//visibility:public"],
     deps = [":data_scope_proto"],
-)
-
-buf_lint_test(
-    name = "enforcer_lint",
-    size = "small",
-    config = "//:buf.yaml",
-    targets = [":enforcer_proto"],
 )
 
 cc_proto_library(
@@ -115,24 +69,6 @@ cc_proto_library(
     name = "enforcer_cc_proto",
     visibility = ["//visibility:public"],
     deps = [":enforcer_proto"],
-)
-
-proto_descriptor_set(
-    name = "enforcer_descriptor_set",
-    visibility = ["//visibility:public"],
-    deps = [":enforcer_proto"],
-)
-
-rust_prost_library(
-    name = "enforcer_rust",
-    proto = ":enforcer_proto",
-    visibility = ["//visibility:public"],
-)
-
-rust_prost_library(
-    name = "data_scope_rust",
-    proto = ":data_scope_proto",
-    visibility = ["//visibility:public"],
 )
 
 cpp_grpc_library(
@@ -165,16 +101,15 @@ proto_library(
     ],
 )
 
-buf_lint_test(
-    name = "external_proxy_lint",
-    size = "small",
-    config = "//:buf.yaml",
-    targets = [":external_proxy_proto"],
-)
-
 cc_proto_library(
     name = "external_proxy_cc_proto",
     deps = [":external_proxy_proto"],
+)
+
+cc_proto_library(
+    name = "options_cc_proto",
+    visibility = ["//visibility:public"],
+    deps = [":options_proto"],
 )
 
 cpp_grpc_library(
@@ -182,11 +117,69 @@ cpp_grpc_library(
     protos = [":external_proxy_proto"],
 )
 
+py_proto_library(
+    name = "options_py_proto",
+    visibility = ["//visibility:public"],
+    deps = [":options_proto"],
+)
+
+buf_lint_test(
+    name = "options_lint",
+    size = "small",
+    config = "//:buf.yaml",
+    targets = [":options_proto"],
+)
+
+buf_lint_test(
+    name = "enforcer_lint",
+    size = "small",
+    config = "//:buf.yaml",
+    targets = [":enforcer_proto"],
+)
+
 buf_lint_test(
     name = "ez_to_ez_service_lint",
     size = "small",
     config = "//:buf.yaml",
     targets = [":ez_to_ez_service_proto"],
+)
+
+buf_lint_test(
+    name = "external_proxy_lint",
+    size = "small",
+    config = "//:buf.yaml",
+    targets = [":external_proxy_proto"],
+)
+
+buf_lint_test(
+    name = "data_scope_lint",
+    size = "small",
+    config = "//:buf.yaml",
+    targets = [":data_scope_proto"],
+)
+
+proto_descriptor_set(
+    name = "options_descriptor_set",
+    visibility = ["//visibility:public"],
+    deps = [":options_proto"],
+)
+
+proto_descriptor_set(
+    name = "enforcer_descriptor_set",
+    visibility = ["//visibility:public"],
+    deps = [":enforcer_proto"],
+)
+
+rust_prost_library(
+    name = "enforcer_rust",
+    proto = ":enforcer_proto",
+    visibility = ["//visibility:public"],
+)
+
+rust_prost_library(
+    name = "data_scope_rust",
+    proto = ":data_scope_proto",
+    visibility = ["//visibility:public"],
 )
 
 rust_prost_library(

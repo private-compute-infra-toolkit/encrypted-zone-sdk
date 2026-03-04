@@ -15,6 +15,13 @@
 #include "core/cpp/src/ez_isolate_bridge_server.h"
 
 #include <gmock/gmock.h>
+#include <grpcpp/client_context.h>
+#include <grpcpp/create_channel.h>
+#include <grpcpp/security/credentials.h>
+#include <grpcpp/security/server_credentials.h>
+#include <grpcpp/server_builder.h>
+#include <grpcpp/server_context.h>
+#include <grpcpp/support/status.h>
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -25,14 +32,8 @@
 #include <utility>
 #include <vector>
 
-#include <grpcpp/client_context.h>
-#include <grpcpp/create_channel.h>
-#include <grpcpp/security/credentials.h>
-#include <grpcpp/security/server_credentials.h>
-#include <grpcpp/server_builder.h>
-#include <grpcpp/server_context.h>
-#include <grpcpp/support/status.h>
-
+#include "absl/status/status_matchers.h"
+#include "absl/strings/string_view.h"
 #include "core/cpp/src/isolate_ez_bridge_client.h"
 #include "core/cpp/test/mock_isolate_rpc_service.h"
 #include "enforcer/v1/ez_isolate_bridge.grpc.pb.h"
@@ -42,6 +43,7 @@
 namespace EzIsolateBridgeSdk {
 namespace {
 
+using ::absl_testing::StatusIs;
 using ::enforcer::v1::InvokeIsolateRequest;
 using ::enforcer::v1::InvokeIsolateResponse;
 using ::EzIsolateBridgeSdk::MockIsolateRpcService;
@@ -49,8 +51,7 @@ using ::testing::_;
 using ::testing::DoAll;
 using ::testing::Eq;
 using ::testing::HasSubstr;
-using ::testing::IsFalse;
-using ::testing::IsTrue;
+using ::testing::InvokeArgument;
 using ::testing::Return;
 using ::testing::SetArgReferee;
 
@@ -58,6 +59,21 @@ using ::enforcer::v1::EzIsolateBridge;
 using ::enforcer::v1::IsolateState;
 using ::enforcer::v1::UpdateIsolateStateRequest;
 using ::enforcer::v1::UpdateIsolateStateResponse;
+
+constexpr int kResponseDataIndex = 3;
+constexpr int kDoneCallbackIndex = 5;
+constexpr absl::string_view kErrorMessage = "method not found";
+
+absl::Status ToAbslStatus(const grpc::Status& grpc_status) {
+  if (grpc_status.ok()) {
+    return absl::OkStatus();
+  }
+
+  // Both gRPC and Abseil status codes share the same underlying integer
+  // values, so a direct static_cast is perfectly safe here.
+  return absl::Status(static_cast<absl::StatusCode>(grpc_status.error_code()),
+                      grpc_status.error_message());
+}
 
 class EzIsolateBridgeServerTest : public ::testing::Test {
  protected:
@@ -138,8 +154,9 @@ TEST_F(EzIsolateBridgeServerTest, InvokeIsolateFailsWhenNotReady) {
   InvokeIsolateResponse response;
   grpc::Status status = stub->InvokeIsolate(&context, request, &response);
 
-  EXPECT_THAT(status.error_message(),
-              ::testing::HasSubstr("Isolate is not ready"));
+  EXPECT_THAT(ToAbslStatus(status),
+              StatusIs(grpc::StatusCode::FAILED_PRECONDITION,
+                       HasSubstr("Isolate is not ready")));
 }
 
 TEST_F(EzIsolateBridgeServerTest, InvokeIsolateSucceedsWhenReady) {
@@ -166,9 +183,11 @@ TEST_F(EzIsolateBridgeServerTest, InvokeIsolateSucceedsWhenReady) {
 
   // 3. Setup Expectation
   std::string response_data = "response_data";
-  EXPECT_CALL(*mock_service_, IsolateRpcMethodHandler("MockMethod", _, _, _))
-      .WillOnce(testing::DoAll(testing::SetArgReferee<2>(response_data),
-                               Return(grpc::Status::OK)));
+  EXPECT_CALL(*mock_service_,
+              IsolateRpcMethodHandler(_, "MockMethod", _, _, _, _))
+      .WillOnce(testing::DoAll(
+          testing::SetArgReferee<kResponseDataIndex>(response_data),
+          InvokeArgument<kDoneCallbackIndex>(grpc::Status::OK)));
 
   // 4. Call InvokeIsolate
   InvokeIsolateResponse response;
@@ -233,16 +252,15 @@ TEST_F(EzIsolateBridgeServerTest, StreamInvokeIsolateSucceedsWhenReady) {
   // 3. Setup Expectation
   std::string response_data = "response_data";
   EXPECT_CALL(*mock_service_, IsolateStreamRpcMethodHandler(_, _, _, _))
-      .WillOnce(testing::Invoke(
-          [&](uintptr_t stream_id, const InvokeIsolateRequest& req,
-              ResponseWriter* writer,
-              std::shared_ptr<std::vector<std::string>> shared_memory) {
-            auto response = std::make_unique<InvokeIsolateResponse>();
-            response->mutable_isolate_output()->add_datagrams(response_data);
-            writer->WriteResponse(std::move(response));
-            writer->FinishStream(grpc::Status::OK);
-            return grpc::Status::OK;
-          }));
+      .WillOnce([&](uintptr_t stream_id, const InvokeIsolateRequest& req,
+                    ResponseWriter* writer,
+                    std::shared_ptr<std::vector<std::string>> shared_memory) {
+        auto response = std::make_unique<InvokeIsolateResponse>();
+        response->mutable_isolate_output()->add_datagrams(response_data);
+        writer->WriteResponse(std::move(response));
+        writer->FinishStream(grpc::Status::OK);
+        return grpc::Status::OK;
+      });
 
   // 4. Write Request
   EXPECT_TRUE(stream->Write(request));
@@ -285,16 +303,18 @@ TEST(EzIsolateBridgeServerInternalTest, ForwardRequestSuccess) {
 
   EXPECT_CALL(*mock_service, GetServiceName())
       .WillRepeatedly(Return("test_service"));
-  EXPECT_CALL(*mock_service, IsolateRpcMethodHandler("test_method", _, _, _))
-      .WillOnce(
-          DoAll(SetArgReferee<2>("response_data"), Return(grpc::Status::OK)));
-
-  ForwardRequest(mock_service, request, response);
+  EXPECT_CALL(*mock_service,
+              IsolateRpcMethodHandler(_, "test_method", _, _, _, _))
+      .WillOnce(DoAll(SetArgReferee<kResponseDataIndex>("response_data"),
+                      InvokeArgument<kDoneCallbackIndex>(grpc::Status::OK)));
+  ForwardRequest(
+      /*context=*/nullptr, mock_service, request, response,
+      [](grpc::Status status) { EXPECT_TRUE(status.ok()); });
 
   EXPECT_THAT(response.control_plane_metadata().ipc_message_id(), Eq(67890));
-  EXPECT_THAT(response.control_plane_metadata().responder_is_local(), IsTrue());
+  EXPECT_TRUE(response.control_plane_metadata().responder_is_local());
   EXPECT_THAT(response.isolate_output().datagrams(0), Eq("response_data"));
-  EXPECT_THAT(response.has_status(), IsFalse());
+  EXPECT_FALSE(response.has_status());
 }
 
 TEST(EzIsolateBridgeServerInternalTest, ForwardRequestMismatchedService) {
@@ -309,8 +329,11 @@ TEST(EzIsolateBridgeServerInternalTest, ForwardRequestMismatchedService) {
   EXPECT_CALL(*mock_service, GetServiceName())
       .WillRepeatedly(Return("test_service"));
 
-  ForwardRequest(mock_service, request, response);
-
+  ForwardRequest(/*context=*/nullptr, mock_service, request, response,
+                 [](grpc::Status status) {
+                   EXPECT_THAT(ToAbslStatus(status),
+                               StatusIs(grpc::StatusCode::INVALID_ARGUMENT));
+                 });
   EXPECT_THAT(response.status().code(), Eq(grpc::StatusCode::INVALID_ARGUMENT));
   EXPECT_THAT(response.status().message(),
               HasSubstr("Mismatched service name"));
@@ -329,7 +352,11 @@ TEST(EzIsolateBridgeServerInternalTest, ForwardRequestMissingDatagram) {
   EXPECT_CALL(*mock_service, GetServiceName())
       .WillRepeatedly(Return("test_service"));
 
-  ForwardRequest(mock_service, request, response);
+  ForwardRequest(/*context=*/nullptr, mock_service, request, response,
+                 [](grpc::Status status) {
+                   EXPECT_THAT(ToAbslStatus(status),
+                               StatusIs(grpc::StatusCode::INVALID_ARGUMENT));
+                 });
 
   EXPECT_THAT(response.status().code(), Eq(grpc::StatusCode::INVALID_ARGUMENT));
   EXPECT_THAT(response.status().message(), HasSubstr("Missing datagram"));
@@ -349,14 +376,16 @@ TEST(EzIsolateBridgeServerInternalTest, ForwardRequestServiceError) {
 
   EXPECT_CALL(*mock_service, GetServiceName())
       .WillRepeatedly(Return("test_service"));
-  EXPECT_CALL(*mock_service, IsolateRpcMethodHandler(_, _, _, _))
-      .WillOnce(Return(
-          grpc::Status(grpc::StatusCode::NOT_FOUND, "method not found")));
+  EXPECT_CALL(*mock_service, IsolateRpcMethodHandler(_, _, _, _, _, _))
+      .WillOnce(InvokeArgument<kDoneCallbackIndex>(grpc::Status(
+          grpc::StatusCode::NOT_FOUND, std::string(kErrorMessage))));
 
-  ForwardRequest(mock_service, request, response);
-
-  EXPECT_THAT(response.status().code(), Eq(grpc::StatusCode::NOT_FOUND));
-  EXPECT_THAT(response.status().message(), Eq("method not found"));
+  ForwardRequest(/*context=*/nullptr, mock_service, request, response,
+                 [](grpc::Status status) {
+                   EXPECT_THAT(ToAbslStatus(status),
+                               StatusIs(grpc::StatusCode::NOT_FOUND,
+                                        HasSubstr(kErrorMessage)));
+                 });
 }
 
 }  // namespace

@@ -4,7 +4,7 @@
     "sessionId": $SHORT_ID,
     "ezClientUuid": ""
   },
-  "serviceDomain": "playground_example",
+  "operatorDomain": "playground_example",
   "serviceName": $SERVICE_NAME,
   "methodName": $METHOD_NAME,
   "inputParams": {

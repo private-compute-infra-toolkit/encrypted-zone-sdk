@@ -14,6 +14,11 @@
 
 #include "mock_enforcer.h"
 
+#include <grpcpp/grpcpp.h>
+#include <grpcpp/security/credentials.h>
+#include <grpcpp/security/server_credentials.h>
+#include <grpcpp/support/server_callback.h>
+#include <grpcpp/support/status.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -22,12 +27,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-
-#include <grpcpp/grpcpp.h>
-#include <grpcpp/security/credentials.h>
-#include <grpcpp/security/server_credentials.h>
-#include <grpcpp/support/server_callback.h>
-#include <grpcpp/support/status.h>
 
 #include "absl/container/flat_hash_map.h"
 #include "enforcer/v1/ez_isolate_bridge.grpc.pb.h"

@@ -129,6 +129,10 @@ message EzBackendDependency {
     ROUTE_TYPE_REMOTE = 3;
   }
   // The type of routing to use for this backend dependency.
+  // Currently, this field is only used to distinguish ROUTE_TYPE_EXTERNAL.
+  // It is MANDATORY to set this field to ROUTE_TYPE_EXTERNAL for external
+  // (i.e., outside the encrypted zone) endpoints. For other route types, this
+  // field is optional.
   RouteType route_type = 4;
   // TODO: Add additional metadata describing the expected interaction types,
   // e.g., load balancing strategies, streaming or not, chaffing related

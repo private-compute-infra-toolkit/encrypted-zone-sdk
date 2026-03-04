@@ -32,8 +32,7 @@ template_dir_name = "ez-templates"
 default_templates_dir = "//tools/plugin/tmpl"
 
 def get_template_options(suffix, template_file):
-    return "{tmpl_dir}/{tmpl},{basename}{suffix}".format(
-        tmpl_dir = template_dir_name,
+    return "template_name={tmpl},output_name={basename}{suffix}".format(
         basename = "{basename}",
         suffix = suffix,
         tmpl = template_file,
@@ -86,15 +85,15 @@ cc_backend_template_plugins = [
     )
     for i, plugin in enumerate([
         struct(
-            template_file = "hpp_grpc_pb.tmpl",
+            template_file = "grpc.pb.h.jinja2",
             suffix = ".grpc.pb.h",
         ),
         struct(
-            template_file = "hpp_server_reader_writer.tmpl",
+            template_file = "server_reader_writer.h.jinja2",
             suffix = "_server_reader_writer.h",
         ),
         struct(
-            template_file = "hpp_client_reader_writer.tmpl",
+            template_file = "client_reader_writer.h.jinja2",
             suffix = "_client_reader_writer.h",
         ),
     ])
@@ -109,11 +108,11 @@ rs_backend_template_plugins = [
     )
     for i, plugin in enumerate([
         struct(
-            template_file = "rs_isolate_rpc_service.tmpl",
+            template_file = "isolate_rpc_service.rs.jinja2",
             suffix = "_isolate_rpc_service.rs",
         ),
         struct(
-            template_file = "rs_isolate_stub.tmpl",
+            template_file = "isolate_stub.rs.jinja2",
             suffix = "_isolate_stub.rs",
         ),
     ])
@@ -128,7 +127,7 @@ rs_server_bridge_template_plugins = [
     )
     for i, plugin in enumerate([
         struct(
-            template_file = "rs_lib.tmpl",
+            template_file = "lib.rs.jinja2",
             suffix = "_lib.rs",
         ),
     ])
@@ -174,4 +173,3 @@ def ez_sdk_server_bridge_protoc(*, name, protos, proto_basename, protoc_struct, 
 
 def get_all_ez_server_bridge_plugins():
     return rs_server_bridge_template_plugins
-

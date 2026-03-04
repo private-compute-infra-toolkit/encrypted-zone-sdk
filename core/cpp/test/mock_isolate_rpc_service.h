@@ -16,26 +16,30 @@
 #define MOCK_ISOLATE_RPC_SERVICE_H
 
 #include <gmock/gmock.h>
+#include <grpcpp/server_context.h>
+#include <grpcpp/support/status.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include <grpcpp/support/status.h>
-
+#include "absl/functional/any_invocable.h"
+#include "absl/strings/string_view.h"
 #include "core/cpp/src/ez_isolate_bridge_server.h"
-#include "enforcer/v1/ez_isolate_bridge.pb.h"
+#include "google/protobuf/repeated_ptr_field.h"
 
 namespace EzIsolateBridgeSdk {
 
 class MockIsolateRpcService final : public IsolateRpcService {
  public:
   MOCK_METHOD(
-      grpc::Status, IsolateRpcMethodHandler,
-      (const std::string& method_name,
+      void, IsolateRpcMethodHandler,
+      (grpc::CallbackServerContext * context, const std::string& method_name,
        const google::protobuf::RepeatedPtrField<std::string>& request_bytes,
        std::string& response_bytes,
-       std::vector<std::string>& response_shared_memory_handles),
+       std::vector<std::string>& response_shared_memory_handles,
+       absl::AnyInvocable<void(grpc::Status) &&> done),
       (override));
   MOCK_METHOD(grpc::Status, IsolateStreamRpcMethodHandler,
               (uintptr_t stream_id, const InvokeIsolateRequest& request,

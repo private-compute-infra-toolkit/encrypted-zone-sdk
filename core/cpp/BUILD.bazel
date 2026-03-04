@@ -29,12 +29,18 @@ cc_library(
     deps = [
         "//enforcer/v1:enforcer_cc_proto",
         "//enforcer/v1:enforcer_grpc_proto",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/numeric:int128",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
         "@grpc//:grpc++",
         "@grpc//:grpc_security_base",
     ],
@@ -47,6 +53,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":ez_isolate_bridge",
+        "@com_google_absl//absl/functional:any_invocable",
         "@com_google_googletest//:gtest",
     ],
 )
@@ -58,6 +65,8 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":ez_isolate_bridge",
+        "@com_google_absl//absl/functional:any_invocable",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest",
     ],
 )
@@ -82,6 +91,8 @@ cc_test(
         ":ez_isolate_bridge",
         ":mock_isolate_rpc_service",
         "//enforcer/v1:enforcer_grpc_proto",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest",
         "@grpc//:grpc++",
     ],

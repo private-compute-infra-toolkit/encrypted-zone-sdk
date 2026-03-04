@@ -42,18 +42,18 @@ class PrecomputedBackendImpl final : public PrecomputedBackend::Service {
   PrecomputedBackendImpl(const std::string& shared_memory_handle)
       : shared_memory_handle_(shared_memory_handle) {}
 
-  Status IsolateRpcMethodHandler(
-      const std::string& method_name,
+  void IsolateRpcMethodHandler(
+      grpc::CallbackServerContext* context, const std::string& method_name,
       const ::google::protobuf::RepeatedPtrField<std::string>& request_bytes,
       std::string& response_bytes,
-      std::vector<std::string>& response_shared_memory_handles) override {
-    Status status = PrecomputedBackend::Service::IsolateRpcMethodHandler(
-        method_name, request_bytes, response_bytes,
-        response_shared_memory_handles);
+      std::vector<std::string>& response_shared_memory_handles,
+      absl::AnyInvocable<void(grpc::Status) &&> done) override {
+    PrecomputedBackend::Service::IsolateRpcMethodHandler(
+        context, method_name, request_bytes, response_bytes,
+        response_shared_memory_handles, std::move(done));
     if (method_name == "FetchTable") {
       response_shared_memory_handles.push_back(shared_memory_handle_);
     }
-    return status;
   }
 
   Status IsolateStreamRpcMethodHandler(

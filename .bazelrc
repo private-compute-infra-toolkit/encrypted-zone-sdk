@@ -48,6 +48,8 @@ build:noexcept --copt=-fno-exceptions
 
 build:cpp_nowarn --copt=-Werror
 build:cpp_nowarn --per_file_copt=external/.*@-Wno-error
+build:cpp_nowarn --per_file_copt=core/cpp/src/ez_isolate_bridge_server.cpp@-Wno-deprecated-declarations
+build:cpp_nowarn --per_file_copt=examples/helloworld.*/main/helloworld_async_test.cc@-Wno-deprecated-declarations
 
 build --incompatible_strict_action_env
 build --strip=always

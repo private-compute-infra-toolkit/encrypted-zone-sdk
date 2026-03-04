@@ -172,20 +172,17 @@ async fn send_requests(
                 service_name.clone(),
                 method_name.clone(),
             ))
-            .await
-            .unwrap()
-            .into_inner();
-        // If no status is set, the assumption is no errors occurred
-        if response.status.is_some() {
-            match response.status.as_ref().unwrap().code {
-                0 => {}
-                other => {
-                    println!("error raw response: {response:?}");
-                    anyhow::bail!("RPC error, Status was {other:?}");
-                }
+            .await;
+
+        let inner_response = match response {
+            Ok(inner_response) => inner_response.into_inner(),
+            Err(e) => {
+                println!("rpc failed {e:?}");
+                anyhow::bail!("RPC error: {e:?}");
             }
-        }
-        let public_output_bytes = prost::bytes::Bytes::from(response.public_output);
+        };
+
+        let public_output_bytes = prost::bytes::Bytes::from(inner_response.public_output);
         let parsed_response = IntegerSequenceResponse::decode(public_output_bytes).unwrap();
         assert_eq!(parsed_response.sequence_sum, get_expected_sum_result(sum_start, sum_end));
     }
@@ -221,16 +218,6 @@ async fn send_requests_stream(
         }
     });
     while let Some(response) = response_stream.message().await.unwrap() {
-        // If no status is set, the assumption is no errors occurred
-        if response.status.is_some() {
-            match response.status.as_ref().unwrap().code {
-                0 => println!("Status was explicitly set OK"),
-                other => {
-                    println!("raw response: {response:?}");
-                    anyhow::bail!("RPC error, Status was {other:?}");
-                }
-            }
-        }
         let public_output_bytes = prost::bytes::Bytes::from(response.public_output);
         let parsed_response = IntegerSequenceResponse::decode(public_output_bytes).unwrap();
         assert_eq!(parsed_response.sequence_sum, get_expected_sum_result(sum_start, sum_end));

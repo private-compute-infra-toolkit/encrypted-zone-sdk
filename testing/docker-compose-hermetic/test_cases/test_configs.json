@@ -33,23 +33,6 @@
       }
     ]
   },
-  "helloworld_edition": {
-    "manifest_json_path": "examples/helloworld_edition/main/ez_manifest.json",
-    "server_bundle_target": "examples/helloworld_edition/main:helloworld_bundle",
-    "proto_descriptor_set": "greeter_edition_proto_descriptor_set.pb",
-    "rpcs": [
-      {
-        "service_name": "Greeter",
-        "method_name": "SayHello",
-        "rpc_type": "unary"
-      },
-      {
-        "service_name": "Greeter",
-        "method_name": "StreamingSayHello",
-        "rpc_type": "streaming"
-      }
-    ]
-  },
   "summation_by_looping_monolithic_server": {
     "manifest_json_path": "examples/summation_by_looping_monolithic_server/server/summation_by_looping_monolithic_server_manifest.json",
     "server_bundle_target": "examples/summation_by_looping_monolithic_server/server:summation_by_looping_monolithic_server_bundle",

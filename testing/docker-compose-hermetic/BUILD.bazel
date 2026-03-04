@@ -21,7 +21,6 @@ sut(
         "docker_image_": "docker_images/",
         "enforcer/v1/enforcer_descriptor_set.pb": "data/enforcer_descriptor_set.pb",
         "examples/helloworld/proto/greeter_proto_descriptor_set.pb": "data/greeter_proto_descriptor_set.pb",
-        "examples/helloworld_edition/proto/greeter_proto_descriptor_set.pb": "data/greeter_edition_proto_descriptor_set.pb",
         "examples/summation_by_lookup_table_with_backend/proto/summation_proto_descriptor_set.pb": "data/summation_by_lookup_table_with_backend_proto_descriptor_set.pb",
         "examples/summation_by_looping_monolithic_server/proto/summation_proto_descriptor_set.pb": "data/summation_by_looping_monolithic_server_proto_descriptor_set.pb",
         "examples/summation_by_looping_with_backend/proto/summation_proto_descriptor_set.pb": "data/summation_by_looping_with_backend_proto_descriptor_set.pb",
@@ -29,7 +28,6 @@ sut(
     sut_labels = [
         "//enforcer/v1:enforcer_descriptor_set",
         "//examples/helloworld/proto:greeter_proto_descriptor_set",
-        "//examples/helloworld_edition/proto:greeter_proto_descriptor_set",
         "//examples/summation_by_looping_monolithic_server/proto:summation_proto_descriptor_set",
         "//examples/summation_by_looping_with_backend/proto:summation_proto_descriptor_set",
         "//examples/summation_by_lookup_table_with_backend/proto:summation_proto_descriptor_set",

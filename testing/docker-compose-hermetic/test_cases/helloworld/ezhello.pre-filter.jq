@@ -4,7 +4,7 @@
     "sessionId": $SHORT_ID,
     "ezClientUuid": ""
   },
-  "serviceDomain": "helloworld_domain",
+  "operatorDomain": "helloworld_domain",
   "serviceName": $SERVICE_NAME,
   "methodName": $METHOD_NAME,
   "inputParams": {

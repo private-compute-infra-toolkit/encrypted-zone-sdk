@@ -14,9 +14,25 @@
 
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
-exclude:
-  (?x)^( bazel-(bin|out|testlogs|workspace)/.*| .*\.patch| version\.txt| CHANGELOG\.md|
-  google_internal/LATEST_RELEASE\.md| licenses/.* |.*/cargo.*bazel-lock\.json |.*/Cargo.*\.bazel\.lock )$
+
+# This excludes files from an internal source. Keep this list in sync with the
+# internal copy configuration.
+exclude: >
+  (?x)^(
+    bazel-(bin|out|testlogs|workspace)/.*|
+    .*\.patch|
+    version\.txt|
+    CHANGELOG\.md|
+    google_internal/LATEST_RELEASE\.md|
+    licenses/.*|
+    .*/cargo.*bazel-lock\.json|
+    .*/Cargo.*\.bazel\.lock|
+    core/cpp/.*|
+    enforcer/.*|
+    examples/helloworld/proto/.*|
+    testing/local/(?!.*\.json$).*|
+    tools/(?!commit_wrapper_hook/|plugin/cmd/|plugin/embed/|plugin/go\.|plugin/protoc-gen-doc\.patch$|plugin/rs_ez_sdk\.bzl$|plugin/tmpl/rs_.*\.tmpl$|plugin/tmpl/hpp_grpc_pb\.tmpl$|plugin/tmpl/hpp_server_reader_writer\.tmpl$).*
+  )$
 fail_fast: false
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -45,12 +61,6 @@ repos:
       - id: script-must-have-extension
       - id: require-ascii
       - id: shellcheck
-
-  - repo: https://github.com/bufbuild/buf
-    rev: v1.60.0
-    hooks:
-      - id: buf-format
-        entry: buf format --write
 
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v20.1.4

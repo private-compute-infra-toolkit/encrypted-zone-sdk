@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <grpcpp/client_context.h>
+#include <grpcpp/create_channel.h>
+#include <grpcpp/security/credentials.h>
+#include <grpcpp/support/status.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -19,15 +23,9 @@
 #include <memory>
 #include <string>
 
-#include <grpcpp/client_context.h>
-#include <grpcpp/create_channel.h>
-#include <grpcpp/security/credentials.h>
-#include <grpcpp/support/status.h>
-
 #include "absl/container/flat_hash_map.h"
 #include "enforcer/v1/ez_isolate_bridge.grpc.pb.h"
 #include "testing/local/mock_enforcer.h"
-
 namespace {
 using ::grpc::Status;
 

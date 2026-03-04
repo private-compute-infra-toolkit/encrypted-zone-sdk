@@ -15,6 +15,13 @@
 #include "core/cpp/src/isolate_ez_bridge_client.h"
 
 #include <fcntl.h>
+#include <grpc/grpc.h>
+#include <grpcpp/create_channel.h>
+#include <grpcpp/security/credentials.h>
+#include <grpcpp/server_context.h>
+#include <grpcpp/support/channel_arguments.h>
+#include <grpcpp/support/status.h>
+#include <grpcpp/support/sync_stream.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -23,7 +30,6 @@
 #include <atomic>
 #include <cerrno>
 #include <cstdint>
-#include <cstdio>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -33,17 +39,9 @@
 #include <utility>
 #include <vector>
 
-#include <grpcpp/create_channel.h>
-#include <grpcpp/grpcpp.h>
-#include <grpcpp/security/credentials.h>
-#include <grpcpp/server_context.h>
-#include <grpcpp/support/channel_arguments.h>
-#include <grpcpp/support/status.h>
-
-#include <grpc/grpc.h>
-
 #include "absl/base/no_destructor.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -69,7 +67,25 @@ using enforcer::v1::IsolateState;
 using enforcer::v1::NotifyIsolateStateRequest;
 using enforcer::v1::NotifyIsolateStateResponse;
 
+namespace grpc {
+inline std::ostream& operator<<(std::ostream& os, const grpc::Status& status) {
+  if (status.ok()) {
+    return os << "OK";
+  }
+  // Note: grpc::StatusCode usually HAS an operator<<, so
+  // status.error_code() will often print as a string like "NOT_FOUND"
+  // or "INTERNAL".
+  os << status.error_code() << ": " << status.error_message();
+
+  if (!status.error_details().empty()) {
+    os << " (" << status.error_details() << ")";
+  }
+  return os;
+}
+}  // namespace grpc
+
 namespace IsolateEzBridgeSdk {
+
 namespace {
 bool IsLocalEzInstanceId(absl::string_view ez_instance_id) { return false; }
 
@@ -120,6 +136,8 @@ class IsolateEzBridgeClientImpl : public IsolateEzBridgeClient {
                               const std::string& ez_instance_id,
                               const std::string& request_bytes,
                               std::string& response_bytes) override {
+    LOG_EVERY_N(INFO, 1000)
+        << "IsolateRpcCall EZ-to-EZ to " << service_name << "." << method_name;
     // Create a new context for the outbound call to the bridge, but propagate
     // the deadline from the user's context if available.
     grpc::ClientContext outbound_context;
@@ -147,14 +165,14 @@ class IsolateEzBridgeClientImpl : public IsolateEzBridgeClient {
       const std::string& service_name, const std::string& method_name,
       const std::string& ez_instance_id, const std::string& request_bytes,
       std::string* response_bytes,
-      std::function<void(grpc::Status)> callback) override {
+      absl::AnyInvocable<void(grpc::Status) &&> callback) override {
     // Check for local handlers first.
     if (IsLocalEzInstanceId(ez_instance_id)) {
       auto it = local_handlers_.find(service_name);
       if (it != local_handlers_.end()) {
         grpc::Status status =
             it->second(method_name, request_bytes, *response_bytes);
-        callback(status);
+        std::move(callback)(status);
         return;
       }
     }
@@ -162,61 +180,72 @@ class IsolateEzBridgeClientImpl : public IsolateEzBridgeClient {
     auto invoke_ez_request = std::make_shared<InvokeEzRequest>();
     uint64_t ipc_message_id = ++ipc_message_id_;
 
-    ControlPlaneMetadata* control_plane_metadata =
-        invoke_ez_request->mutable_control_plane_metadata();
-    control_plane_metadata->set_ipc_message_id(ipc_message_id);
-    control_plane_metadata->set_responder_is_local(true);
-    control_plane_metadata->set_destination_operator_domain(operator_domain);
-    control_plane_metadata->set_destination_service_name(service_name);
-    control_plane_metadata->set_destination_method_name(method_name);
-    control_plane_metadata->set_destination_ez_instance_id(ez_instance_id);
-    EzPayloadIsolateScope* ez_payload_iscope =
-        invoke_ez_request->mutable_isolate_request_iscope();
+    ControlPlaneMetadata& cp_metadata =
+        *invoke_ez_request->mutable_control_plane_metadata();
+    cp_metadata.set_ipc_message_id(ipc_message_id);
+    cp_metadata.set_responder_is_local(true);
+    cp_metadata.set_destination_operator_domain(operator_domain);
+    cp_metadata.set_destination_service_name(service_name);
+    cp_metadata.set_destination_method_name(method_name);
+    cp_metadata.set_destination_ez_instance_id(ez_instance_id);
+
     IsolateDataScope* isolate_data_scope =
-        ez_payload_iscope->add_datagram_iscopes();
+        invoke_ez_request->mutable_isolate_request_iscope()
+            ->add_datagram_iscopes();
     isolate_data_scope->set_scope_type(
         DataScopeType::DATA_SCOPE_TYPE_UNSPECIFIED);
 
-    EzPayloadData* ez_payload_data =
-        invoke_ez_request->mutable_isolate_request_payload();
-    ez_payload_data->add_datagrams(request_bytes);
+    invoke_ez_request->mutable_isolate_request_payload()->add_datagrams(
+        request_bytes);
 
     // Context deadline propagation is handled by the caller (passed in context)
-
     // We need a response object that lives as long as the call.
-    auto invoke_ez_response = std::make_shared<InvokeEzResponse>();
+    auto async_call_state = std::make_shared<AsyncCallState>(
+        AsyncCallState{.client = this,
+                       .callback = std::move(callback),
+                       .request = std::move(invoke_ez_request),
+                       .response = std::make_shared<InvokeEzResponse>(),
+                       .response_bytes = response_bytes,
+                       .ipc_message_id = ipc_message_id});
+
+    auto* raw_request = async_call_state->request.get();
+    auto* raw_response = async_call_state->response.get();
     isolate_ez_bridge_stub_->async()->InvokeEz(
-        context, invoke_ez_request.get(), invoke_ez_response.get(),
-        [this, callback = std::move(callback), response_bytes,
-         invoke_ez_response, ipc_message_id](grpc::Status status) mutable {
+        context, raw_request, raw_response,
+        [this,
+         state = std::move(async_call_state)](grpc::Status status) mutable {
           if (!status.ok()) {
-            std::move(callback)(status);
+            std::move(state->callback)(status);
             return;
           }
-          if (invoke_ez_response->control_plane_metadata().ipc_message_id() !=
-              ipc_message_id) {
-            std::move(callback)(grpc::Status(grpc::StatusCode::INTERNAL,
-                                             "Mismatched IPC message id"));
+
+          if (state->response->control_plane_metadata().ipc_message_id() !=
+              state->ipc_message_id) {
+            std::move(state->callback)(grpc::Status(
+                grpc::StatusCode::INTERNAL, "Mismatched IPC message id"));
             return;
           }
-          for (const auto& handle : invoke_ez_response->control_plane_metadata()
+
+          for (const auto& handle : state->response->control_plane_metadata()
                                         .shared_memory_handles()) {
             if (absl::Status s = ProcessReceivedSharedMemoryHandle(handle);
                 !s.ok()) {
-              std::move(callback)(
+              std::move(state->callback)(
                   grpc::Status(grpc::StatusCode::INTERNAL, s.ToString()));
               return;
             }
           }
-          if (invoke_ez_response->ez_response_payload().datagrams().empty()) {
-            std::move(callback)(grpc::Status(grpc::StatusCode::INTERNAL,
-                                             "Missing response payload"));
+
+          if (state->response->ez_response_payload().datagrams().empty()) {
+            std::move(state->callback)(grpc::Status(
+                grpc::StatusCode::INTERNAL, "Missing response payload"));
             return;
           }
-          *response_bytes =
-              std::move(*invoke_ez_response->mutable_ez_response_payload()
+
+          *state->response_bytes =
+              std::move(*state->response->mutable_ez_response_payload()
                              ->mutable_datagrams(0));
-          std::move(callback)(grpc::Status::OK);
+          std::move(state->callback)(grpc::Status::OK);
         });
   }
 
@@ -376,14 +405,25 @@ class IsolateEzBridgeClientImpl : public IsolateEzBridgeClient {
     }
     // Read the response, even though it contains nothing right now
     NotifyIsolateStateResponse response;
-    if (bool success = notify_state_stream->Read(&response); !success) {
-      LOG(WARNING) << "Failed to read IsolateState response";
-    }
+    bool success = notify_state_stream->Read(&response);
     auto status = notify_state_stream->Finish();
+    if (!success) {
+      LOG(WARNING)
+          << "Failed to read IsolateState response, stream finished with "
+          << "status: " << status;
+    }
     return status.ok();
   }
 
  private:
+  struct AsyncCallState {
+    IsolateEzBridgeClientImpl* client;
+    absl::AnyInvocable<void(grpc::Status) &&> callback;
+    std::shared_ptr<InvokeEzRequest> request;
+    std::shared_ptr<InvokeEzResponse> response;
+    std::string* response_bytes;
+    uint64_t ipc_message_id;
+  };
   std::unique_ptr<IsolateEzBridge::Stub> isolate_ez_bridge_stub_;
   std::atomic_uint64_t ipc_message_id_;
   std::stack<Vec<char>> received_memshares_;
@@ -397,7 +437,17 @@ class IsolateEzBridgeClientImpl : public IsolateEzBridgeClient {
 // pattern. Currently only returns a global singleton instance, initialized
 // lazily when this method is first invoked. (Note: C++11 seems to guarantee
 // thread-safety for this singleton pattern.)
+IsolateEzBridgeClient* g_instance_for_testing = nullptr;
+
+void IsolateEzBridgeClient::SetInstanceForTesting(
+    IsolateEzBridgeClient* instance) {
+  g_instance_for_testing = instance;
+}
+
 IsolateEzBridgeClient& IsolateEzBridgeClient::GetInstance() {
+  if (g_instance_for_testing) {
+    return *g_instance_for_testing;
+  }
   // TODO: Consider switching to thread-local.
   static IsolateEzBridgeClientImpl instance;
   return instance;

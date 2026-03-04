@@ -14,12 +14,11 @@
 
 #include "core/cpp/src/isolate_ez_bridge_client.h"
 
+#include <grpcpp/grpcpp.h>
 #include <gtest/gtest.h>
 
 #include <filesystem>
 #include <fstream>
-
-#include <grpcpp/grpcpp.h>
 
 #include "absl/time/clock.h"
 #include "absl/time/time.h"

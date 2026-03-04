@@ -27,25 +27,6 @@ proto_library(
     deps = ["//enforcer/v1:options_proto"],
 )
 
-rust_prost_library(
-    name = "greeter_rust",
-    proto = ":greeter_proto",
-    visibility = ["//visibility:public"],
-)
-
-proto_descriptor_set(
-    name = "greeter_proto_descriptor_set",
-    visibility = ["//visibility:public"],
-    deps = [":greeter_proto"],
-)
-
-cpp_grpc_library(
-    name = "greeter_grpc_proto",
-    protos = [":greeter_proto"],
-    visibility = ["//visibility:public"],
-    deps = ["//enforcer/v1:options_cc_proto"],
-)
-
 cc_proto_library(
     name = "greeter_cc_proto",
     visibility = ["//visibility:public"],
@@ -79,4 +60,23 @@ ez_isolate_service_cc(
     deps = [
         ":greeter_cc_proto",
     ],
+)
+
+rust_prost_library(
+    name = "greeter_rust",
+    proto = ":greeter_proto",
+    visibility = ["//visibility:public"],
+)
+
+proto_descriptor_set(
+    name = "greeter_proto_descriptor_set",
+    visibility = ["//visibility:public"],
+    deps = [":greeter_proto"],
+)
+
+cpp_grpc_library(
+    name = "greeter_grpc_proto",
+    protos = [":greeter_proto"],
+    visibility = ["//visibility:public"],
+    deps = ["//enforcer/v1:options_cc_proto"],
 )

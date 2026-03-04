@@ -16,15 +16,16 @@
 #define MOCK_ISOLATE_EZ_BRIDGE_CLIENT_H
 
 #include <gmock/gmock.h>
-
-#include <functional>
-#include <memory>
-#include <string>
-
 #include <grpcpp/client_context.h>
 #include <grpcpp/support/status.h>
 #include <grpcpp/support/sync_stream.h>
 
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <string>
+
+#include "absl/functional/any_invocable.h"
 #include "core/cpp/src/isolate_ez_bridge_client.h"
 #include "core/cpp/src/mem_share_response.h"
 
@@ -66,7 +67,7 @@ class MockBridgeClient : public IsolateEzBridgeClient {
                const std::string& service_name, const std::string& method_name,
                const std::string& ez_instance_id,
                const std::string& request_bytes, std::string* response_bytes,
-               std::function<void(grpc::Status)> callback),
+               absl::AnyInvocable<void(grpc::Status) &&> callback),
               (override));
 };
 

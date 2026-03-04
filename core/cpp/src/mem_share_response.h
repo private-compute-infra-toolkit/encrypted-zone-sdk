@@ -17,9 +17,9 @@
 #ifndef MEM_SHARE_RESPONSE_H
 #define MEM_SHARE_RESPONSE_H
 
-#include <string>
-
 #include <grpcpp/grpcpp.h>
+
+#include <string>
 
 // Result from memory sharing. Shared memory handle will be populated if
 // the memory sharing/mapping succeeded, otherwise a suitable status will be

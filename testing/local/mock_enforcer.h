@@ -15,6 +15,9 @@
 #ifndef SDK_TESTING_LOCAL_MOCK_ENFORCER_H_
 #define SDK_TESTING_LOCAL_MOCK_ENFORCER_H_
 
+#include <grpcpp/grpcpp.h>
+#include <grpcpp/support/server_callback.h>
+#include <grpcpp/support/status.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -23,14 +26,9 @@
 #include <string>
 #include <thread>
 
-#include <grpcpp/grpcpp.h>
-#include <grpcpp/support/server_callback.h>
-#include <grpcpp/support/status.h>
-
 #include "absl/container/flat_hash_map.h"
 #include "enforcer/v1/ez_isolate_bridge.grpc.pb.h"
 #include "enforcer/v1/isolate_ez_bridge.grpc.pb.h"
-
 using ::grpc::CallbackServerContext;
 using ::grpc::Server;
 using ::grpc::ServerBidiReactor;

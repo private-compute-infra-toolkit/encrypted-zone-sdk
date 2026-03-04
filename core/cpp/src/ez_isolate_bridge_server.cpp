@@ -14,6 +14,12 @@
 
 #include "core/cpp/src/ez_isolate_bridge_server.h"
 
+#include <grpcpp/security/server_credentials.h>
+#include <grpcpp/server.h>
+#include <grpcpp/server_builder.h>
+#include <grpcpp/server_context.h>
+#include <grpcpp/support/server_callback.h>
+#include <grpcpp/support/status.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -22,28 +28,32 @@
 #include <cstdlib>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
-#include <grpcpp/grpcpp.h>
-#include <grpcpp/security/server_credentials.h>
-#include <grpcpp/server.h>
-#include <grpcpp/server_builder.h>
-#include <grpcpp/server_context.h>
-#include <grpcpp/support/server_callback.h>
-#include <grpcpp/support/status.h>
-
+#include "absl/base/thread_annotations.h"
+#include "absl/flags/flag.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/log/log.h"
+#include "absl/numeric/int128.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/synchronization/notification.h"
+#include "absl/time/time.h"
 #include "core/cpp/src/isolate_ez_bridge_client.h"
 #include "enforcer/v1/ez_isolate_bridge.grpc.pb.h"
 #include "enforcer/v1/ez_payload.pb.h"
 #include "enforcer/v1/isolate_bridge.pb.h"
 #include "google/protobuf/message_lite.h"
+
+ABSL_FLAG(absl::Duration, ez_isolate_bridge_server_local_handler_timeout,
+          absl::Minutes(2), "Default timeout for local handler RPC calls.");
 
 namespace {
 
@@ -83,9 +93,11 @@ void CreateInvalidArgumentResponse(const std::string& message,
 }
 
 // Used to forward request to Isolate; Invokes unary IsolateRpcMethodHandler
-void ForwardRequest(std::shared_ptr<IsolateRpcService> isolate_rpc_service,
+void ForwardRequest(grpc::CallbackServerContext* context,
+                    std::shared_ptr<IsolateRpcService> isolate_rpc_service,
                     const InvokeIsolateRequest& request,
-                    InvokeIsolateResponse& response) {
+                    InvokeIsolateResponse& response,
+                    absl::AnyInvocable<void(grpc::Status) &&> done) {
   const ControlPlaneMetadata& request_cp_metadata =
       request.control_plane_metadata();
   const uint64_t ipc_msg_id = request_cp_metadata.ipc_message_id();
@@ -99,46 +111,64 @@ void ForwardRequest(std::shared_ptr<IsolateRpcService> isolate_rpc_service,
                      isolate_rpc_service->GetServiceName(), ", but got ",
                      service_name),
         ipc_msg_id, response);
+    std::move(done)(grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+                                 "Mismatched service name"));
     return;
   }
+
   const std::string& method_name =
       request_cp_metadata.destination_method_name();
   if (request.isolate_input().datagrams().empty()) {
     CreateInvalidArgumentResponse("Missing datagram", ipc_msg_id, response);
+    std::move(done)(
+        grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Missing datagram"));
     return;
   }
 
   const auto& datagrams = request.isolate_input().datagrams();
-  std::string response_bytes;
-  std::vector<std::string> response_shared_memory_handles;
+  struct ResponseState {
+    std::string bytes;
+    std::vector<std::string> shared_memory_handles;
+  };
+  auto response_state = std::make_unique<ResponseState>();
+  auto* raw_state = response_state.get();
+
   // Forwarding happens here
-  grpc::Status status = isolate_rpc_service->IsolateRpcMethodHandler(
-      method_name, datagrams, response_bytes, response_shared_memory_handles);
+  VLOG(5) << "Forwarding request to IsolateRpcMethodHandler";
+  isolate_rpc_service->IsolateRpcMethodHandler(
+      context, method_name, datagrams, raw_state->bytes,
+      raw_state->shared_memory_handles,
+      [&response, response_state = std::move(response_state), ipc_msg_id,
+       done = std::move(done)](grpc::Status status) mutable {
+        VLOG(3) << "IsolateRpcMethodHandler completed with status: " << status;
+        ControlPlaneMetadata* response_cp_metadata =
+            response.mutable_control_plane_metadata();
+        response_cp_metadata->set_ipc_message_id(ipc_msg_id);
+        response_cp_metadata->set_responder_is_local(true);
+        // TODO: Validate the memory shares before returning them
+        for (const std::string& handle :
+             response_state->shared_memory_handles) {
+          response_cp_metadata->add_shared_memory_handles(handle);
+        }
 
-  ControlPlaneMetadata* response_cp_metadata =
-      response.mutable_control_plane_metadata();
-  response_cp_metadata->set_ipc_message_id(ipc_msg_id);
-  response_cp_metadata->set_responder_is_local(true);
-  // TODO: Validate the memory shares before returning them
-  for (const std::string& handle : response_shared_memory_handles) {
-    response_cp_metadata->add_shared_memory_handles(handle);
-  }
+        if (!status.ok()) {
+          std::move(done)(status);
+          return;
+        } else {
+          EzPayloadIsolateScope* ez_payload_iscope =
+              response.mutable_isolate_output_iscope();
+          EzPayloadData* ez_payload_data = response.mutable_isolate_output();
+          IsolateDataScope* isolate_data_scope =
+              ez_payload_iscope->add_datagram_iscopes();
+          isolate_data_scope->set_scope_type(
+              DataScopeType::DATA_SCOPE_TYPE_UNSPECIFIED);
+          ez_payload_data->add_datagrams(response_state->bytes);
+        }
 
-  if (!status.ok()) {
-    IsolateStatus* isolate_status = response.mutable_status();
-    isolate_status->set_message(status.error_message());
-    isolate_status->set_code(status.error_code());
-    return;
-  }
-
-  EzPayloadIsolateScope* ez_payload_iscope =
-      response.mutable_isolate_output_iscope();
-  EzPayloadData* ez_payload_data = response.mutable_isolate_output();
-  IsolateDataScope* isolate_data_scope =
-      ez_payload_iscope->add_datagram_iscopes();
-  isolate_data_scope->set_scope_type(
-      DataScopeType::DATA_SCOPE_TYPE_UNSPECIFIED);
-  ez_payload_data->add_datagrams(response_bytes);
+        VLOG(5) << "Invoking done callback, setting "
+                << "invoke_isolate_response: " << response.DebugString();
+        std::move(done)(status);
+      });
 }
 
 }  // namespace EzIsolateBridgeSdk
@@ -275,7 +305,6 @@ class Reactor : public grpc::ServerBidiReactor<InvokeIsolateRequest,
   std::atomic<bool> writing_in_progress_{false};
   std::atomic<int32_t>* current_state_;
 };
-
 }  // namespace
 
 namespace EzIsolateBridgeSdk {
@@ -288,6 +317,8 @@ EzIsolateBridgeImpl::EzIsolateBridgeImpl(
 grpc::ServerUnaryReactor* EzIsolateBridgeImpl::InvokeIsolate(
     grpc::CallbackServerContext* context, const InvokeIsolateRequest* request,
     InvokeIsolateResponse* response) {
+  const ControlPlaneMetadata& request_cp_metadata =
+      request->control_plane_metadata();
   int32_t current_state = current_state_.load(std::memory_order_acquire);
   if (current_state != enforcer::v1::IsolateState::ISOLATE_STATE_READY) {
     std::string error_message =
@@ -298,7 +329,7 @@ grpc::ServerUnaryReactor* EzIsolateBridgeImpl::InvokeIsolate(
     return reactor;
   }
   const std::string_view service_name =
-      request->control_plane_metadata().destination_service_name();
+      request_cp_metadata.destination_service_name();
   if (auto service_it = isolate_rpc_service_map_.find(service_name);
       service_it == isolate_rpc_service_map_.end()) {
     const std::string error_message =
@@ -308,10 +339,16 @@ grpc::ServerUnaryReactor* EzIsolateBridgeImpl::InvokeIsolate(
     return reactor;
   } else {
     auto service_handler = service_it->second;
-    ForwardRequest(service_handler, *request, *response);
-    // TODO: Add custom impl once we support cancellations
     auto* reactor = context->DefaultReactor();
-    reactor->Finish(grpc::Status::OK);
+    // TODO: Add custom impl once we support cancellations
+    ForwardRequest(context, service_handler, *request, *response,
+                   [reactor, response](grpc::Status status) {
+                     VLOG(4)
+                         << "Invoking reactor finish with status: " << status
+                         << " and invoke isolate completed: "
+                         << response->DebugString();
+                     reactor->Finish(status);
+                   });
     return reactor;
   }
 }
@@ -347,9 +384,21 @@ void EzIsolateBridgeImpl::AddIsolateRpcService(
         std::vector<std::string> response_shared_memory_handles;
         google::protobuf::RepeatedPtrField<std::string> request_bytes;
         *request_bytes.Add() = request;
-        return isolate_rpc_service->IsolateRpcMethodHandler(
-            service_name, request_bytes, response,
-            response_shared_memory_handles);
+        absl::Notification notification;
+        grpc::Status status_result;
+        isolate_rpc_service->IsolateRpcMethodHandler(
+            /*context=*/nullptr, service_name, request_bytes, response,
+            response_shared_memory_handles,
+            [&status_result, &notification](grpc::Status status) {
+              status_result = status;
+              notification.Notify();
+            });
+        if (!notification.WaitForNotificationWithTimeout(absl::GetFlag(
+                FLAGS_ez_isolate_bridge_server_local_handler_timeout))) {
+          status_result = grpc::Status(grpc::StatusCode::DEADLINE_EXCEEDED,
+                                       "Deadline exceeded");
+        }
+        return status_result;
       });
   isolate_rpc_service_map_.insert(
       {isolate_rpc_service->GetServiceName(), std::move(isolate_rpc_service)});
