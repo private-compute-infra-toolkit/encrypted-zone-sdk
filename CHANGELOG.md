@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## 0.12.0 (2026-03-12)
+
+
+### Features
+
+* Specify the index URL for PIP explicitly
+* Update rules_python Bazel dependency to version 1.9.0
+
 ## 0.11.0 (2026-03-11)
 
 
