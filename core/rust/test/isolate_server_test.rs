@@ -252,20 +252,17 @@ async fn test_unary_rpc_dispatch_with_no_control_plane_metadata() {
     let unary_request_with_no_control_plane_metadata =
         InvokeIsolateRequest { control_plane_metadata: None, ..Default::default() };
 
-    let response_with_no_control_plane_metadata = harness
+    let status = harness
         .client
         .invoke_isolate(unary_request_with_no_control_plane_metadata)
         .await
-        .expect("Failed to invoke isolate");
+        .expect_err("Failed to invoke isolate");
 
     assert_eq!(mock_service.unary_call_count(), 0);
     assert_eq!(mock_service.stream_call_count(), 0);
     assert_eq!(mock_service.stream_message_count(), 0);
 
-    assert_eq!(
-        response_with_no_control_plane_metadata.status.expect("Should have error status").code,
-        Code::InvalidArgument as i32,
-    );
+    assert_eq!(status.code(), Code::InvalidArgument);
 
     harness.stop().await.expect("Test harness should stop");
 }
@@ -295,20 +292,17 @@ async fn test_unary_rpc_dispatch_with_wrong_destination_service_name() {
         ..Default::default()
     };
 
-    let response_with_wrong_destination_service_name = harness
+    let status = harness
         .client
         .invoke_isolate(unary_request_with_wrong_destination_service_name)
         .await
-        .expect("Failed to invoke isolate");
+        .expect_err("Failed to invoke isolate");
 
     assert_eq!(mock_service.unary_call_count(), 0);
     assert_eq!(mock_service.stream_call_count(), 0);
     assert_eq!(mock_service.stream_message_count(), 0);
 
-    assert_eq!(
-        response_with_wrong_destination_service_name.status.expect("Should have error status").code,
-        Code::NotFound as i32,
-    );
+    assert_eq!(status.code(), Code::NotFound);
 
     harness.stop().await.expect("Test harness should stop");
 }
@@ -344,20 +338,17 @@ async fn test_unary_rpc_dispatch_with_no_datagram() {
         ..Default::default()
     };
 
-    let response_with_no_datagram = harness
+    let status = harness
         .client
         .invoke_isolate(unary_request_with_no_datagram)
         .await
-        .expect("Failed to invoke isolate");
+        .expect_err("Failed to invoke isolate");
 
     assert_eq!(mock_service.unary_call_count(), 0);
     assert_eq!(mock_service.stream_call_count(), 0);
     assert_eq!(mock_service.stream_message_count(), 0);
 
-    assert_eq!(
-        response_with_no_datagram.status.expect("Should have error status").code,
-        Code::InvalidArgument as i32,
-    );
+    assert_eq!(status.code(), Code::InvalidArgument);
 
     harness.stop().await.expect("Test harness should stop");
 }
@@ -393,20 +384,17 @@ async fn test_unary_rpc_dispatch_with_wrong_method_name() {
         ..Default::default()
     };
 
-    let response_with_wrong_method_name = harness
+    let status = harness
         .client
         .invoke_isolate(unary_request_with_wrong_method_name)
         .await
-        .expect("Failed to invoke isolate");
+        .expect_err("Failed to invoke isolate");
 
     assert_eq!(mock_service.unary_call_count(), 0);
     assert_eq!(mock_service.stream_call_count(), 0);
     assert_eq!(mock_service.stream_message_count(), 0);
 
-    assert_eq!(
-        response_with_wrong_method_name.status.expect("Should have error status").code,
-        Code::InvalidArgument as i32,
-    );
+    assert_eq!(status.code(), Code::InvalidArgument);
 
     harness.stop().await.expect("Test harness should stop");
 }
@@ -504,11 +492,11 @@ async fn test_stream_rpc_dispatch_with_empty_stream() {
 
     let mut responses = Vec::new();
     while let Some(response) = response_stream.next().await {
-        responses.push(response.expect("Failed to get response"));
+        responses.push(response.expect_err("Failed to get response"));
     }
 
     assert_eq!(responses.len(), 1);
-    assert_eq!(responses[0].status.as_ref().expect("Should have error status").code, 3); // INVALID_ARGUMENT
+    assert_eq!(responses[0].code(), Code::InvalidArgument);
 
     assert_eq!(mock_service.unary_call_count(), 0);
     assert_eq!(mock_service.stream_call_count(), 0);
@@ -568,11 +556,11 @@ async fn test_stream_rpc_dispatch_with_wrong_service_name() {
 
     let mut responses = Vec::new();
     while let Some(response) = response_stream.next().await {
-        responses.push(response.expect("Failed to get response"));
+        responses.push(response.expect_err("Failed to get response"));
     }
 
     assert_eq!(responses.len(), 1);
-    assert_eq!(responses[0].status.as_ref().expect("Should have error status").code, 5); // NOT_FOUND
+    assert_eq!(responses[0].code(), Code::NotFound);
 
     assert_eq!(mock_service.unary_call_count(), 0);
     assert_eq!(mock_service.stream_call_count(), 0);
@@ -697,11 +685,10 @@ async fn test_stream_rpc_dispatch_with_multiple_services() {
         ..Default::default()
     };
 
-    let response =
-        harness.client.invoke_isolate(unary_request).await.expect("Failed to invoke isolate");
+    let status =
+        harness.client.invoke_isolate(unary_request).await.expect_err("Failed to invoke isolate");
 
-    assert!(response.status.is_some());
-    assert_eq!(response.status.as_ref().unwrap().code, Code::Unimplemented as i32);
+    assert_eq!(status.code(), Code::Unimplemented);
 
     assert_eq!(mock_service.unary_call_count(), 1);
     assert_eq!(mock_service.stream_call_count(), 0);
@@ -760,11 +747,8 @@ async fn test_request_lifecycle_with_state_change() {
     };
 
     // 1. Should succeed in Ready state
-    let response =
+    let _ =
         harness.client.invoke_isolate(request.clone()).await.expect("Failed to invoke in Ready");
-    if let Some(status) = response.status {
-        assert_eq!(status.code, Code::Ok as i32, "Expected Ok status in Ready state");
-    }
 
     // 2. Move to Retiring
     harness
@@ -776,12 +760,11 @@ async fn test_request_lifecycle_with_state_change() {
         .expect("Failed to update state");
 
     // 3. Should fail in Retiring state
-    let response =
-        harness.client.invoke_isolate(request).await.expect("Failed to invoke in Retiring");
+    let status =
+        harness.client.invoke_isolate(request).await.expect_err("Failed to invoke in Retiring");
 
     // Expect failure
-    let status = response.status.expect("Expected status in Retiring state");
-    assert_ne!(status.code, Code::Ok as i32, "Expected non-Ok code in Retiring state");
+    assert_ne!(status.code(), Code::Ok, "Expected non-Ok code in Retiring state");
 
     harness.stop().await.expect("Test harness should stop");
 }

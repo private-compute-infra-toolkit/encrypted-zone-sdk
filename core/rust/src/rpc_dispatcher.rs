@@ -17,7 +17,7 @@ use async_stream::stream;
 use derivative::Derivative;
 use enforcer_proto::enforcer::v1::ez_isolate_bridge_server::EzIsolateBridge;
 use enforcer_proto::enforcer::v1::{
-    ControlPlaneMetadata, InvokeIsolateRequest, InvokeIsolateResponse, IsolateState, IsolateStatus,
+    ControlPlaneMetadata, InvokeIsolateRequest, InvokeIsolateResponse, IsolateState,
     UpdateIsolateStateRequest, UpdateIsolateStateResponse,
 };
 use std::collections::HashMap;
@@ -26,7 +26,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
-use tonic::{Code, Request, Response, Status, Streaming};
+use tonic::{Request, Response, Status, Streaming};
 
 /// A trait for services that run within the isolate and handle RPC calls.
 ///
@@ -131,33 +131,26 @@ impl RpcDispatcher {
         let metadata = match control_plane_metadata {
             Some(m) => m,
             None => {
-                return Err(get_invalid_isolate_response(
-                    "Missing control plane metadata".to_string(),
-                    Code::InvalidArgument,
-                    None,
-                ));
+                return Err(Err(Status::invalid_argument("Missing control plane metadata")));
             }
         };
 
-        let ipc_message_id = metadata.ipc_message_id;
         let service_name = &metadata.destination_service_name;
 
         let current_state = self.current_state.load(Ordering::Acquire);
         if current_state != IsolateState::Ready as i32 {
-            return Err(get_invalid_isolate_response(
-                format!("Isolate is not ready. Current state: {}", current_state),
-                Code::FailedPrecondition,
-                Some(ipc_message_id),
-            ));
+            return Err(Err(Status::failed_precondition(format!(
+                "Isolate is not ready. Current state: {}",
+                current_state
+            ))));
         }
 
         match self.service_map.read().await.get(service_name) {
             Some(s) => Ok((metadata, s.clone())),
-            None => Err(get_invalid_isolate_response(
-                format!("Service not supported by isolate: {}", service_name),
-                Code::NotFound,
-                Some(ipc_message_id),
-            )),
+            None => Err(Err(Status::not_found(format!(
+                "Service not supported by isolate: {}",
+                service_name
+            )))),
         }
     }
 }
@@ -189,29 +182,16 @@ impl EzIsolateBridge for RpcDispatcher {
         let request_bytes = match req.isolate_input.and_then(|i| i.datagrams.into_iter().next()) {
             Some(d) => d,
             None => {
-                return get_invalid_isolate_response(
-                    "Missing datagram in request payload".to_string(),
-                    Code::InvalidArgument,
-                    Some(ipc_message_id),
-                )
-                .map(Response::new);
+                return Err(Status::invalid_argument("Missing datagram in request payload"));
             }
         };
 
-        match service.unary_rpc_handler(method_name, &request_bytes).await {
-            Ok(mut response) => {
-                let metadata = response.control_plane_metadata.get_or_insert_with(Default::default);
-                metadata.ipc_message_id = ipc_message_id;
-                metadata.responder_is_local = true;
-                Ok(Response::new(response))
-            }
-            Err(e) => get_invalid_isolate_response(
-                e.message().to_string(),
-                e.code(),
-                Some(ipc_message_id),
-            )
-            .map(Response::new),
-        }
+        let mut response = service.unary_rpc_handler(method_name, &request_bytes).await?;
+        let metadata = response.control_plane_metadata.get_or_insert_with(Default::default);
+        metadata.ipc_message_id = ipc_message_id;
+        metadata.responder_is_local = true;
+
+        Ok(Response::new(response))
     }
 
     type StreamInvokeIsolateStream = PinBoxInvokeIsolateResponseStream;
@@ -234,20 +214,12 @@ impl EzIsolateBridge for RpcDispatcher {
                      }
                 }
                 Err(status) => {
-                    yield get_invalid_isolate_response(
-                        status.message().to_string(),
-                        status.code(),
-                        None,
-                    );
+                    yield Err(status.clone());
                     return;
                 }
               }
           } else {
-             yield get_invalid_isolate_response(
-                 "Stream ended unexpectedly".to_string(),
-                 Code::InvalidArgument,
-                 None,
-             );
+             yield Err(Status::invalid_argument("Stream ended unexpectedly"));
             return;
           };
 
@@ -307,20 +279,4 @@ impl EzIsolateBridge for RpcDispatcher {
         self.current_state.store(new_state as i32, Ordering::Release);
         Ok(Response::new(UpdateIsolateStateResponse { current_state: new_state as i32 }))
     }
-}
-
-fn get_invalid_isolate_response(
-    message: String,
-    code: Code,
-    ipc_message_id: Option<u64>,
-) -> Result<InvokeIsolateResponse, Status> {
-    Ok(InvokeIsolateResponse {
-        status: Some(IsolateStatus { code: code as i32, message }),
-        control_plane_metadata: Some(ControlPlaneMetadata {
-            ipc_message_id: ipc_message_id.unwrap_or_default(),
-            responder_is_local: true,
-            ..Default::default()
-        }),
-        ..Default::default()
-    })
 }

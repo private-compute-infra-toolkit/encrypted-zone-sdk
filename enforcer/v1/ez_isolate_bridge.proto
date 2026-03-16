@@ -64,7 +64,6 @@ message InvokeIsolateResponse {
   ControlPlaneMetadata control_plane_metadata = 1;
   EzPayloadIsolateScope isolate_output_iscope = 2;
   EzPayloadData isolate_output = 3;
-  IsolateStatus status = 4;
 }
 
 message UpdateIsolateStateRequest {

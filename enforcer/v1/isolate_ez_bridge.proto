@@ -71,7 +71,6 @@ message InvokeEzResponse {
   ControlPlaneMetadata control_plane_metadata = 1;
   EzPayloadIsolateScope ez_response_iscope = 2;
   EzPayloadData ez_response_payload = 3;
-  IsolateStatus status = 4;
 }
 
 message CreateMemshareRequest {
@@ -82,7 +81,6 @@ message CreateMemshareResponse {
   // Client software should treat this as opaque, and rely on our SDK to
   // translate it to a memory reference.
   string shared_memory_handle = 1;
-  IsolateStatus status = 2;
 }
 
 message NotifyIsolateStateRequest {

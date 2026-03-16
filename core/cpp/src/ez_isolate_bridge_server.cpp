@@ -66,7 +66,6 @@ using enforcer::v1::InvokeIsolateRequest;
 using enforcer::v1::InvokeIsolateResponse;
 using enforcer::v1::IsolateDataScope;
 using enforcer::v1::IsolateState;
-using enforcer::v1::IsolateStatus;
 using IsolateRpcServiceSharedPtr =
     std::shared_ptr<EzIsolateBridgeSdk::IsolateRpcService>;
 
@@ -78,19 +77,6 @@ constexpr std::string_view kMaxDecodingMessageSizeEnvVar =
 }  // namespace
 
 namespace EzIsolateBridgeSdk {
-
-// Used to populate InvokeIsolateResponse with INVALID_ARGUMENT code and custom
-// message
-void CreateInvalidArgumentResponse(const std::string& message,
-                                   uint64_t ipc_msg_id,
-                                   InvokeIsolateResponse& response) {
-  IsolateStatus* isolate_status = response.mutable_status();
-  isolate_status->set_message(message);
-  isolate_status->set_code(grpc::StatusCode::INVALID_ARGUMENT);
-  LOG(INFO) << "InvalidArgumentResponse [ipc_msg_id: " << ipc_msg_id
-            << "]: " << message;
-  response.mutable_control_plane_metadata()->set_ipc_message_id(ipc_msg_id);
-}
 
 // Used to forward request to Isolate; Invokes unary IsolateRpcMethodHandler
 void ForwardRequest(grpc::CallbackServerContext* context,
@@ -106,11 +92,6 @@ void ForwardRequest(grpc::CallbackServerContext* context,
   if (const std::string& service_name =
           request_cp_metadata.destination_service_name();
       service_name != isolate_rpc_service->GetServiceName()) {
-    CreateInvalidArgumentResponse(
-        absl::StrCat("Mismatched service name: expected ",
-                     isolate_rpc_service->GetServiceName(), ", but got ",
-                     service_name),
-        ipc_msg_id, response);
     std::move(done)(grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
                                  "Mismatched service name"));
     return;
@@ -119,7 +100,6 @@ void ForwardRequest(grpc::CallbackServerContext* context,
   const std::string& method_name =
       request_cp_metadata.destination_method_name();
   if (request.isolate_input().datagrams().empty()) {
-    CreateInvalidArgumentResponse("Missing datagram", ipc_msg_id, response);
     std::move(done)(
         grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Missing datagram"));
     return;

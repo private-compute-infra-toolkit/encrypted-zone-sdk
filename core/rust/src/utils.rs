@@ -15,7 +15,7 @@
 use enforcer_proto::data_scope_proto::enforcer::v1::DataScopeType;
 use enforcer_proto::enforcer::v1::{
     EzPayloadData, EzPayloadIsolateScope, InvokeIsolateRequest, InvokeIsolateResponse,
-    IsolateDataScope, IsolateStatus,
+    IsolateDataScope,
 };
 use futures::Stream;
 use prost::Message;
@@ -70,7 +70,6 @@ pub fn message_to_invoke_isolate_response<T: Message>(
             }],
         }),
         isolate_output: Some(EzPayloadData { datagrams: vec![message.encode_to_vec()] }),
-        status: Some(IsolateStatus { code: 0, message: "OK".to_string() }),
     }
 }
 

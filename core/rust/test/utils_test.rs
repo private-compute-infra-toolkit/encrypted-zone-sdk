@@ -42,11 +42,6 @@ fn test_message_to_invoke_isolate_response() {
         TestMessage::decode(output_data.datagrams[0].as_slice()).expect("should decode");
     assert_eq!(decoded_message.field1, message.field1);
     assert_eq!(decoded_message.field2, message.field2);
-
-    // Verify status
-    let status = response.status.expect("should have status");
-    assert_eq!(status.code, 0);
-    assert_eq!(status.message, "OK");
 }
 
 #[tokio::test]

@@ -276,19 +276,6 @@ TEST_F(EzIsolateBridgeServerTest, StreamInvokeIsolateSucceedsWhenReady) {
   EXPECT_TRUE(status.ok()) << status.error_message();
 }
 
-TEST(EzIsolateBridgeServerInternalTest, CreateInvalidArgumentResponse) {
-  InvokeIsolateResponse response;
-  uint64_t ipc_msg_id = 12345;
-  std::string message = "test error message";
-
-  CreateInvalidArgumentResponse(message, ipc_msg_id, response);
-
-  EXPECT_THAT(response.status().code(), Eq(grpc::StatusCode::INVALID_ARGUMENT));
-  EXPECT_THAT(response.status().message(), Eq(message));
-  EXPECT_THAT(response.control_plane_metadata().ipc_message_id(),
-              Eq(ipc_msg_id));
-}
-
 TEST(EzIsolateBridgeServerInternalTest, ForwardRequestSuccess) {
   auto mock_service = std::make_shared<MockIsolateRpcService>();
   InvokeIsolateRequest request;
@@ -314,7 +301,6 @@ TEST(EzIsolateBridgeServerInternalTest, ForwardRequestSuccess) {
   EXPECT_THAT(response.control_plane_metadata().ipc_message_id(), Eq(67890));
   EXPECT_TRUE(response.control_plane_metadata().responder_is_local());
   EXPECT_THAT(response.isolate_output().datagrams(0), Eq("response_data"));
-  EXPECT_FALSE(response.has_status());
 }
 
 TEST(EzIsolateBridgeServerInternalTest, ForwardRequestMismatchedService) {
@@ -332,11 +318,9 @@ TEST(EzIsolateBridgeServerInternalTest, ForwardRequestMismatchedService) {
   ForwardRequest(/*context=*/nullptr, mock_service, request, response,
                  [](grpc::Status status) {
                    EXPECT_THAT(ToAbslStatus(status),
-                               StatusIs(grpc::StatusCode::INVALID_ARGUMENT));
+                               StatusIs(grpc::StatusCode::INVALID_ARGUMENT,
+                                        HasSubstr("Mismatched service name")));
                  });
-  EXPECT_THAT(response.status().code(), Eq(grpc::StatusCode::INVALID_ARGUMENT));
-  EXPECT_THAT(response.status().message(),
-              HasSubstr("Mismatched service name"));
 }
 
 TEST(EzIsolateBridgeServerInternalTest, ForwardRequestMissingDatagram) {
@@ -355,11 +339,9 @@ TEST(EzIsolateBridgeServerInternalTest, ForwardRequestMissingDatagram) {
   ForwardRequest(/*context=*/nullptr, mock_service, request, response,
                  [](grpc::Status status) {
                    EXPECT_THAT(ToAbslStatus(status),
-                               StatusIs(grpc::StatusCode::INVALID_ARGUMENT));
+                               StatusIs(grpc::StatusCode::INVALID_ARGUMENT,
+                                        HasSubstr("Missing datagram")));
                  });
-
-  EXPECT_THAT(response.status().code(), Eq(grpc::StatusCode::INVALID_ARGUMENT));
-  EXPECT_THAT(response.status().message(), HasSubstr("Missing datagram"));
 }
 
 TEST(EzIsolateBridgeServerInternalTest, ForwardRequestServiceError) {
