@@ -16,9 +16,10 @@ use crate::isolate_ez_bridge_client::IsolateEzBridgeSdkClient;
 use crate::{GrpcClientRequestStream, PinBoxGrpcResponseStream};
 use enforcer_proto::data_scope_proto::enforcer::v1::DataScopeType;
 use enforcer_proto::enforcer::v1::{
-    ControlPlaneMetadata, EzPayloadData, EzPayloadIsolateScope, InvokeEzRequest, InvokeEzResponse,
+    ControlPlaneMetadata, EzPayloadIsolateScope, InvokeEzRequest, InvokeEzResponse,
     IsolateDataScope,
 };
+use payload_proto::enforcer::v1::EzPayloadData;
 use prost::Message;
 use std::sync::Arc;
 use tokio_stream::StreamExt;
@@ -107,6 +108,37 @@ impl RpcHandler {
         request: T,
     ) -> Result<U, Status> {
         let request_bytes = request.encode_to_vec();
+        let response = self.isolate_rpc_call_helper(method_name, request_bytes).await?;
+        decode_invoke_ez_response(&response)
+    }
+
+    /// Performs a unary RPC call to the isolate, using Vec<u8>.
+    ///
+    /// This method creates an `InvokeEzRequest`, sends it to the isolate
+    /// via the bridge client, and decodes the response.
+    /// This allows for raw vector payloads to be sent without encoding/decoding
+    ///
+    /// # Arguments
+    ///
+    /// * `method_name` - The name of the RPC method to invoke.
+    /// * `request` - The request message as a vector payload.
+    ///
+    /// Returns a `Result` containing the vector response message or a `tonic::Status` error.
+    pub async fn isolate_rpc_call_vec(
+        &self,
+        method_name: &str,
+        request: Vec<u8>,
+    ) -> Result<Vec<u8>, Status> {
+        let response = self.isolate_rpc_call_helper(method_name, request).await?;
+        extract_invoke_ez_response(&response).cloned()
+    }
+
+    /// Helper to avoid cloning / ownership differences between vec / non-vec
+    async fn isolate_rpc_call_helper(
+        &self,
+        method_name: &str,
+        request_bytes: Vec<u8>,
+    ) -> Result<InvokeEzResponse, Status> {
         let ipc_message_id = rand::random::<u64>();
 
         let request =
@@ -125,7 +157,7 @@ impl RpcHandler {
             return Err(Status::internal("Mismatched IPC message id"));
         }
 
-        decode_invoke_ez_response(&response)
+        Ok(response)
     }
 
     /// Performs a streaming RPC call to the isolate.
@@ -171,18 +203,18 @@ impl RpcHandler {
     }
 }
 
+fn extract_invoke_ez_response(response: &InvokeEzResponse) -> Result<&Vec<u8>, Status> {
+    // TODO: Handle shared memory handles.
+    response.ez_response_payload.as_ref().and_then(|p| p.datagrams.first()).ok_or_else(|| {
+        log::error!("Missing response payload");
+        Status::internal("Missing response payload")
+    })
+}
+
 fn decode_invoke_ez_response<U: Message + Default>(
     response: &InvokeEzResponse,
 ) -> Result<U, Status> {
-    // TODO: Handle shared memory handles.
-    let response_bytes =
-        response.ez_response_payload.as_ref().and_then(|p| p.datagrams.first()).ok_or_else(
-            || {
-                log::error!("Missing response payload");
-                Status::internal("Missing response payload")
-            },
-        )?;
-
+    let response_bytes = extract_invoke_ez_response(response)?;
     U::decode(response_bytes.as_slice()).map_err(|e| {
         log::error!("Failed to decode response: {:?}", e);
         Status::internal(e.to_string())

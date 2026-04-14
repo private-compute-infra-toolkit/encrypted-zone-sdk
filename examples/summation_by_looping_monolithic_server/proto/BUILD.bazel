@@ -23,7 +23,6 @@ proto_library(
     name = "summation_proto",
     srcs = ["summation.proto"],
     visibility = ["//visibility:public"],
-    deps = ["//enforcer/v1:options_proto"],
 )
 
 proto_descriptor_set(
@@ -36,7 +35,6 @@ cpp_grpc_library(
     name = "summation_grpc_proto",
     protos = [":summation_proto"],
     visibility = ["//visibility:public"],
-    deps = ["//enforcer/v1:options_cc_proto"],
 )
 
 cc_proto_library(
@@ -50,6 +48,10 @@ ez_isolate_service_cc(
     cc_protos = [":summation_cc_proto"],
     proto_basename = "summation",
     protos = [":summation_proto"],
+    services = [
+        "summation.SimpleAdd",
+        "summation.CloneSimpleAdd",
+    ],
     visibility = ["//visibility:public"],
 )
 

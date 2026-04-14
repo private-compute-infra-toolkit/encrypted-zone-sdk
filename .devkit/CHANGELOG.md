@@ -2,6 +2,117 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## 3.2.0 (2026-04-09)
+
+
+### Dependencies
+
+* **deps:** update git to 2.54.0-rc0 and build from source
+
+
+### Bug Fixes
+
+* avoid docker groupd ID conflicts
+* docker image pulling
+
+## 3.1.0 (2026-04-09)
+
+
+### Dependencies
+
+* **deps:** Upgrade gemini-cli to 0.36.0
+* **deps:** upgrade git in tool-env to 2.53.0
+
+
+### Features
+
+* automatically grant xhost permission for X11 display
+
+
+### Bug Fixes
+
+* **docs:** update prerequisites
+* propagate host file descriptor limits to docker container
+
+## 3.0.0 (2026-04-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* The Go toolchain is no longer available in the
+build-environment images. Any scripts or builds relying on go
+inside the container will fail unless they install it separately
+through the devkit.json image configuration optios.
+
+
+### Dependencies
+
+* **deps:** Upgrade gemini-cli to 0.35.2
+
+
+### Features
+
+* use uv for python dependencies
+* mount only ~/.devkit/logs in the container
+* refactor devkit/coverage to run on host via uv
+* run devkit tools on host
+* run devkit/bep Python code from outside of docker containers
+* separate python progress logs from standard output
+* simplify bazelisk installation and remove go from build-env
+
+## 2.15.0 (2026-03-26)
+
+
+### Dependencies
+
+* **deps:** Upgrade gemini-cli to 0.35.0
+* **deps:** Upgrade gemini-cli to 0.35.1
+
+
+### Features
+
+* implement container event handler background service
+
+## 2.14.0 (2026-03-23)
+
+
+### Dependencies
+
+* **deps:** Update ruff to 0.15.7
+* **deps:** Update VSCode to 1.110.1
+* **deps:** Upgrade gemini-cli to 0.33.2
+* **deps:** Upgrade gemini-cli to 0.34.0
+
+
+### Features
+
+* Add --local flag to build script
+* Add --no-cache flag to build script
+* add background docker image cleanup
+* add get_all_docker_image_tags function and refactor build logic
+* add get_image_prefix to build script
+* add image name allowlist and regex filtering to docker cleanup
+* add manual entry point and configurable params to docker cleanup
+* enforce devkit/ prefix in docker image namespaces
+* implement actual docker image removal in cleanup script
+* implement docker image cleanup logic and batch processing
+* integrate docker image tag listing in background cleanup
+* log stdout and stderr from docker rmi in cleanup script
+* Rewrite scripts/docker_run into Python
+* Support docker images namespaces
+* support multiple target images in build script
+
+
+### Bug Fixes
+
+* Adjust function signature types per Python style guide ([84098e7]( )), closes [/google.github.io/styleguide/pyguide.html#31912]( )
+* Use proper images search path
+
+
+### Documentation
+
+* Do not use pages subdirectory
+
 ## 2.13.0 (2026-03-13)
 
 

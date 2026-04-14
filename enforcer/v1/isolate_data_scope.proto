@@ -21,28 +21,26 @@ package enforcer.v1;
 
 import "enforcer/v1/data_scope_type.proto";
 
-// Specifies import path for the generated Go code used to auto-generate SDK code from proto annotations.
-option go_package = "github.com/private-compute-infra-toolkit/ez/sdk/v1";
-
 // Describes the entity that owns an instantiated EZ data scope.
 message IsolateScopeOwner {
   // Optional
   // UUID for this scope's owner, e.g., a particular EZ user or developer.
   // This may not match the actual UUID in the original EzDataScope, but instead
   // will be re-mapped to a safer UUID that is only valid for the domain that
-  // owns this particular isolate.
+  // owns this particular Isolate.
   bytes mapped_owner_uuid = 1;
 }
 
 // This is a small subset of the data contained in an EzDataScope, suitable both
-// for ingress and egress from untrusted isolate code. When referring to an
+// for ingress and egress from untrusted Isolate code. When referring to an
 // IsolateDataScope in code, prefer the use of the short form "Iscope" as a way
 // to distinguish this from regular EzDataScope typed "Scope" variable names.
 //
 // WARNING: The protobuf must be carefully instantiated so as not to contain any
 // unknown fields (e.g. as might happen via copying of the protobuf, or by
-// passing it through directly from one isolate to another).
+// passing it through directly from one Isolate to another).
 message IsolateDataScope {
+  reserved 2;
   DataScopeType scope_type = 1; // Required
   IsolateScopeOwner mapped_scope_owner = 3; // Optional (unset for some scopes)
 

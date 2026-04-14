@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MOCK_ISOLATE_RPC_SERVICE_H
-#define MOCK_ISOLATE_RPC_SERVICE_H
+#ifndef CORE_CPP_TEST_MOCK_ISOLATE_RPC_SERVICE_H
+#define CORE_CPP_TEST_MOCK_ISOLATE_RPC_SERVICE_H
 
 #include <gmock/gmock.h>
 #include <grpcpp/server_context.h>
@@ -39,22 +39,28 @@ class MockIsolateRpcService final : public IsolateRpcService {
        const google::protobuf::RepeatedPtrField<std::string>& request_bytes,
        std::string& response_bytes,
        std::vector<std::string>& response_shared_memory_handles,
+       std::vector<std::string>& response_fileshare_handles,
        absl::AnyInvocable<void(grpc::Status) &&> done),
       (override));
-  MOCK_METHOD(grpc::Status, IsolateStreamRpcMethodHandler,
-              (uintptr_t stream_id, const InvokeIsolateRequest& request,
-               ResponseWriter* response_writer,
-               std::shared_ptr<std::vector<std::string>>
-                   response_shared_memory_handles),
-              (override));
+  MOCK_METHOD(
+      grpc::Status, IsolateStreamRpcMethodHandler,
+      (uintptr_t stream_id, const InvokeIsolateRequest& request,
+       ResponseWriter* response_writer,
+       std::shared_ptr<std::vector<std::string>> response_shared_memory_handles,
+       std::shared_ptr<std::vector<std::string>> response_fileshare_handles),
+      (override));
   MOCK_METHOD(grpc::Status, ForwardStreamingMessage,
               (uintptr_t stream_id, const InvokeIsolateRequest& request),
               (override));
   MOCK_METHOD(grpc::Status, RequestStreamClosed, (uintptr_t stream_id),
+              (override));
+  MOCK_METHOD(grpc::Status, OnFileshareEvent,
+              (std::string_view share_handle,
+               enforcer::v1::FileshareEvent::FileshareEventType event_type),
               (override));
   MOCK_METHOD(absl::string_view, GetServiceName, (), (override));
 };
 
 }  // namespace EzIsolateBridgeSdk
 
-#endif  // MOCK_ISOLATE_RPC_SERVICE_H
+#endif  // CORE_CPP_TEST_MOCK_ISOLATE_RPC_SERVICE_H

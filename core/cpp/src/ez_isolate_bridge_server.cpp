@@ -47,9 +47,6 @@
 #include "absl/synchronization/notification.h"
 #include "absl/time/time.h"
 #include "core/cpp/src/isolate_ez_bridge_client.h"
-#include "enforcer/v1/ez_isolate_bridge.grpc.pb.h"
-#include "enforcer/v1/ez_payload.pb.h"
-#include "enforcer/v1/isolate_bridge.pb.h"
 #include "google/protobuf/message_lite.h"
 
 ABSL_FLAG(absl::Duration, ez_isolate_bridge_server_local_handler_timeout,
@@ -59,7 +56,6 @@ namespace {
 
 using enforcer::v1::ControlPlaneMetadata;
 using enforcer::v1::DataScopeType;
-using enforcer::v1::EzIsolateBridge;
 using enforcer::v1::EzPayloadData;
 using enforcer::v1::EzPayloadIsolateScope;
 using enforcer::v1::InvokeIsolateRequest;
@@ -73,6 +69,15 @@ constexpr std::string_view kDefaultSocketPath =
     "/enforcer-isolate-shared/ez-isolate-bridge-uds";
 constexpr std::string_view kMaxDecodingMessageSizeEnvVar =
     "EZ_MAX_DECODING_MESSAGE_SIZE";
+
+void FetchEnvVar(const char* env_var,
+                 absl::AnyInvocable<void(const char*) &&> setter) {
+  if (const char* value = std::getenv(env_var); value != nullptr) {
+    std::move(setter)(value);
+  } else {
+    std::move(setter)(nullptr);
+  }
+}
 
 }  // namespace
 
@@ -109,6 +114,7 @@ void ForwardRequest(grpc::CallbackServerContext* context,
   struct ResponseState {
     std::string bytes;
     std::vector<std::string> shared_memory_handles;
+    std::vector<std::string> fileshare_handles;
   };
   auto response_state = std::make_unique<ResponseState>();
   auto* raw_state = response_state.get();
@@ -117,7 +123,7 @@ void ForwardRequest(grpc::CallbackServerContext* context,
   VLOG(5) << "Forwarding request to IsolateRpcMethodHandler";
   isolate_rpc_service->IsolateRpcMethodHandler(
       context, method_name, datagrams, raw_state->bytes,
-      raw_state->shared_memory_handles,
+      raw_state->shared_memory_handles, raw_state->fileshare_handles,
       [&response, response_state = std::move(response_state), ipc_msg_id,
        done = std::move(done)](grpc::Status status) mutable {
         VLOG(3) << "IsolateRpcMethodHandler completed with status: " << status;
@@ -129,6 +135,9 @@ void ForwardRequest(grpc::CallbackServerContext* context,
         for (const std::string& handle :
              response_state->shared_memory_handles) {
           response_cp_metadata->add_shared_memory_handles(handle);
+        }
+        for (const std::string& handle : response_state->fileshare_handles) {
+          response_cp_metadata->add_fileshare_handles(handle);
         }
 
         if (!status.ok()) {
@@ -176,7 +185,7 @@ class Reactor : public grpc::ServerBidiReactor<InvokeIsolateRequest,
     // async write is still pending.
     StartWrite(response_ptr.get());
     // Keep the response alive until OnWriteDone is called.
-    absl::MutexLock lock(&pending_writes_mutex_);
+    absl::MutexLock lock(pending_writes_mutex_);
     pending_writes_.push_back(std::move(response_ptr));
   }
 
@@ -213,11 +222,13 @@ class Reactor : public grpc::ServerBidiReactor<InvokeIsolateRequest,
         return;
       }
       is_rpc_started_ = true;
-      std::shared_ptr<std::vector<std::string>> response_shared_memory_handles =
+      auto response_shared_memory_handles =
+          std::make_shared<std::vector<std::string>>();
+      auto response_fileshare_handles =
           std::make_shared<std::vector<std::string>>();
       status = isolate_rpc_service->IsolateStreamRpcMethodHandler(
-          stream_id_, invoke_isolate_req_, this,
-          response_shared_memory_handles);
+          stream_id_, invoke_isolate_req_, this, response_shared_memory_handles,
+          response_fileshare_handles);
     } else {
       status = isolate_rpc_service->ForwardStreamingMessage(
           stream_id_, invoke_isolate_req_);
@@ -233,8 +244,7 @@ class Reactor : public grpc::ServerBidiReactor<InvokeIsolateRequest,
     writing_in_progress_.store(false);
     writing_in_progress_.notify_one();
     // Free memory associated with the write that just completed.
-    if (absl::MutexLock lock(&pending_writes_mutex_);
-        !pending_writes_.empty()) {
+    if (absl::MutexLock lock(pending_writes_mutex_); !pending_writes_.empty()) {
       pending_writes_.pop_front();
     }
 
@@ -318,6 +328,7 @@ grpc::ServerUnaryReactor* EzIsolateBridgeImpl::InvokeIsolate(
     reactor->Finish(grpc::Status(grpc::StatusCode::UNKNOWN, error_message));
     return reactor;
   } else {
+    auto trace_span = std::unique_ptr<int>();
     auto service_handler = service_it->second;
     auto* reactor = context->DefaultReactor();
     // TODO: Add custom impl once we support cancellations
@@ -357,18 +368,34 @@ grpc::ServerUnaryReactor* EzIsolateBridgeImpl::UpdateIsolateState(
 
 void EzIsolateBridgeImpl::AddIsolateRpcService(
     std::shared_ptr<IsolateRpcService> isolate_rpc_service) {
+  IsolateEzBridgeSdk::IsolateEzBridgeClient::GetInstance()
+      .RegisterFileshareEventHandler(
+          absl::AnyInvocable<void(
+              std::string_view,
+              enforcer::v1::FileshareEvent::FileshareEventType)>(
+              [isolate_rpc_service](
+                  std::string_view fileshare_handle,
+                  enforcer::v1::FileshareEvent::FileshareEventType event_type) {
+                if (grpc::Status status = isolate_rpc_service->OnFileshareEvent(
+                        fileshare_handle, event_type);
+                    !status.ok()) {
+                  LOG(ERROR)
+                      << "OnFileshareEvent failed: " << status.error_message();
+                }
+              }));
   IsolateEzBridgeSdk::IsolateEzBridgeClient::GetInstance().RegisterLocalHandler(
       std::string(isolate_rpc_service->GetServiceName()),
       [isolate_rpc_service](const std::string& service_name,
                             const std::string& request, std::string& response) {
         std::vector<std::string> response_shared_memory_handles;
+        std::vector<std::string> response_fileshare_handles;
         google::protobuf::RepeatedPtrField<std::string> request_bytes;
         *request_bytes.Add() = request;
         absl::Notification notification;
         grpc::Status status_result;
         isolate_rpc_service->IsolateRpcMethodHandler(
             /*context=*/nullptr, service_name, request_bytes, response,
-            response_shared_memory_handles,
+            response_shared_memory_handles, response_fileshare_handles,
             [&status_result, &notification](grpc::Status status) {
               status_result = status;
               notification.Notify();
@@ -407,18 +434,20 @@ void IsolateRpcServer::StartIsolateRpcServer() {
 
 void IsolateRpcServer::StartIsolateRpcServer(const std::string& socket_path) {
   LOG(INFO) << "Starting EzIsolateBridge Server. Socket path: " << socket_path;
+
   grpc::ServerBuilder builder;
-  if (const char* env_var_value =
-          std::getenv(kMaxDecodingMessageSizeEnvVar.data());
-      env_var_value != nullptr) {
-    if (int max_decoding_message_size;
-        !absl::SimpleAtoi(env_var_value, &max_decoding_message_size)) {
-      LOG(ERROR) << "Invalid value for " << kMaxDecodingMessageSizeEnvVar
-                 << ". Using default max message size.";
-    } else {
-      builder.SetMaxReceiveMessageSize(max_decoding_message_size);
+  FetchEnvVar(kMaxDecodingMessageSizeEnvVar.data(), [&](const char* value) {
+    if (value != nullptr) {
+      if (int max_decoding_message_size;
+          !absl::SimpleAtoi(value, &max_decoding_message_size)) {
+        LOG(ERROR) << "Invalid value for " << kMaxDecodingMessageSizeEnvVar
+                   << ". Using default max message size.";
+      } else {
+        builder.SetMaxReceiveMessageSize(max_decoding_message_size);
+      }
     }
-  }
+  });
+
   builder.AddListeningPort("unix:" + socket_path,
                            grpc::InsecureServerCredentials());
   builder.RegisterService(&(*bridge_));

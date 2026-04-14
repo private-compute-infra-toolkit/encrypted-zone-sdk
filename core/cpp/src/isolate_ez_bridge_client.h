@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef ISOLATE_EZ_BRIDGE_CLIENT_H
-#define ISOLATE_EZ_BRIDGE_CLIENT_H
+#ifndef CORE_CPP_SRC_ISOLATE_EZ_BRIDGE_CLIENT_H
+#define CORE_CPP_SRC_ISOLATE_EZ_BRIDGE_CLIENT_H
 
 #include <grpcpp/client_context.h>
 #include <grpcpp/support/status.h>
@@ -29,6 +29,8 @@
 
 #include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+#include "core/cpp/src/create_fileshare_response.h"
 #include "core/cpp/src/mem_share_response.h"
 #include "enforcer/v1/isolate_ez_bridge.pb.h"
 #include "enforcer/v1/isolate_state.pb.h"
@@ -125,6 +127,34 @@ class IsolateEzBridgeClient {
 
   virtual bool NewIsolateState(IsolateState new_isolate_state) = 0;
 
+  // Requests a fileshare from the EZ Enforcer and receives a handle to a
+  // writable directory. Then, two files are created in this directory: file
+  // and file.staging. The caller is expected to write to file.staging and then
+  // call CommitFileChanges to commit the changes to file. For example, the
+  // caller opens, writes and closes file.staging, then calls CommitFileChanges.
+  // The caller can do this any number of times.
+  virtual CreateFileshareResponse CreateFileshare() = 0;
+
+  // Effectively commits the changes in the staging file to the shared file.
+  // It does this by first creating a copy of the staging file and then using
+  // the Linux rename system call to atomically replace the shared file with the
+  // copy. This preserves the staging file so the caller can continue to write
+  // to it (after reopening). After this, the Enforcer is notified that the
+  // file has been updated.
+  virtual absl::Status CommitFileChanges(absl::string_view staging_path) = 0;
+
+  // Registers a handler for fileshare events. The handler is called when a
+  // fileshare event is received from the Enforcer. If the fileshare event
+  // stream is not already started, it will be started.
+  virtual void RegisterFileshareEventHandler(
+      absl::AnyInvocable<
+          void(absl::string_view fileshare_handle,
+               enforcer::v1::FileshareEvent::FileshareEventType event_type)>
+          handler) = 0;
+
+  // Clears all registered fileshare event handlers.
+  virtual void ClearFileshareEventHandlers() = 0;
+
   // Creates a writable shared memory region with room for a specified number
   // of items (num_items) of the requested type.
   template <typename T>
@@ -164,4 +194,4 @@ class IsolateEzBridgeClient {
 
 }  // namespace IsolateEzBridgeSdk
 
-#endif  // ISOLATE_EZ_BRIDGE_CLIENT_H
+#endif  // CORE_CPP_SRC_ISOLATE_EZ_BRIDGE_CLIENT_H

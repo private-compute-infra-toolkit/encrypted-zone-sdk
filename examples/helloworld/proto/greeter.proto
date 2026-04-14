@@ -17,31 +17,17 @@ syntax = "proto3";
 
 package helloworld;
 
-import "enforcer/v1/options.proto";
-
 option java_multiple_files = true;
 option java_outer_classname = "HelloWorldProto";
 option java_package = "io.grpc.playground.helloworld";
 
 // The greeting service definition.
 service Greeter {
-  option (enforcer.v1.ez_svc_annotation) = {
-    name: "GreeterService"
-  };
-
   // Sends a greeting
-  rpc SayHello(HelloRequest) returns (HelloReply) {
-    option (enforcer.v1.ez_rpc_annotation) = {
-      name: "SayHello"
-    };
-  }
+  rpc SayHello(HelloRequest) returns (HelloReply) {}
 
   // Bidirectional Streaming greeting
-  rpc StreamingSayHello(stream HelloRequest) returns (stream HelloReply) {
-    option (enforcer.v1.ez_rpc_annotation) = {
-      name: "StreamingSayHello"
-    };
-  }
+  rpc StreamingSayHello(stream HelloRequest) returns (stream HelloReply) {}
 }
 
 // The request message containing the user's name.

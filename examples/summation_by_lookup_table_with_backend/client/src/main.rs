@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use clap::Parser;
-use enforcer_proto::enforcer::v1::ez_public_api_client::EzPublicApiClient;
+use ez_service_proto::enforcer::v1::ez_public_api_client::EzPublicApiClient;
 use prost::Message;
 use std::env;
 use summation_client_lib::{
@@ -28,6 +28,10 @@ const PUBLIC_API_HOST_ENV_VAR: &str = "EZ_PUBLIC_API_HOST";
 const PUBLIC_API_PORT_ENV_VAR: &str = "EZ_PUBLIC_API_PORT";
 // see enforcer/public_api/src/lib.rs
 const EZ_PUBLIC_API_RESPONSE_CHANNEL_SIZE: usize = 128;
+// Delay is [base * (scaling ^ retry)], where retry is the number of previous attempts
+const RETRY_COUNT: usize = 3;
+const RETRY_BASE_DELAY_MILLIS: u64 = 1000;
+const RETRY_SCALING: u64 = 2;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -61,7 +65,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let host = env::var(PUBLIC_API_HOST_ENV_VAR).unwrap_or(client_args.server_address);
     let port = env::var(PUBLIC_API_PORT_ENV_VAR).unwrap_or(client_args.port.to_string());
     // 3 retries with 1s as base delay
-    let retry_strategy = ExponentialBackoff::from_millis(1000).take(3);
+    // Note that TokioRetry's ExponentialBackoff arguments swap the from and factor usage.
+    let retry_strategy = ExponentialBackoff::from_millis(RETRY_SCALING)
+        .factor(RETRY_BASE_DELAY_MILLIS)
+        .take(RETRY_COUNT);
     let client = Retry::spawn(retry_strategy, move || {
         ez_api_retryable_connect(format!("http://{}:{}", host, port))
     })

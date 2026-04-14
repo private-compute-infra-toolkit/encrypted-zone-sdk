@@ -1,4 +1,4 @@
-// Copyright 2025 Google LLC
+// Copyright 2026 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,12 +22,8 @@ package enforcer.v1;
 
 import "enforcer/v1/isolate_data_scope.proto";
 
-// Specifies import path for the generated Go code used to auto-generate SDK
-// code from proto annotations.
-option go_package = "github.com/private-compute-infra-toolkit/ez/sdk/v1";
-
 // All fields here are optional, and are intended to be shared between the EZ
-// enforcer and untrusted isolates.
+// enforcer and untrusted Isolates.
 //
 // Isolates are required to repeat the request ipc_message_id in their response
 // metadata, but all other fields are ignored when the response is from an
@@ -42,13 +38,13 @@ message ControlPlaneMetadata {
   // A message id that must be unique for a particular pair of communicating
   // client/server endpoints (i.e., the EZ enforcer or Isolate in some order).
   // It is acceptable to have a collision of message ids between two different
-  // instances of an isolate, or with the same isolate but in a reverse
+  // instances of an Isolate, or with the same Isolate but in a reverse
   // communication pattern (i.e., acting as client in one direction and server
   // in the other).
   fixed64 ipc_message_id = 1;
   // The workload identity for the source of this request. The request is always
   // routed via the EZ enforcer, which is never mentioned here -- this will name
-  // the "remote" isolate that made the request being routed. When the request
+  // the "remote" Isolate that made the request being routed. When the request
   // originates directly from an external (non-EZ) source, this field should be
   // left unset.
   string requester_spiffe = 2;
@@ -61,16 +57,16 @@ message ControlPlaneMetadata {
   // communication with this EZ enforcer, not remotely over InternalApi).
   bool responder_is_local = 4;
 
-  // operator domain / isolate name / publisher id will uniquely identify an
-  // isolate in an EZ cluster, and a responder SPIFFE ID can be derived from
+  // operator domain / Isolate name / publisher id will uniquely identify an
+  // Isolate in a EZ cluster, and a responder SPIFFE ID can be derived from
   // these fields.
   string destination_operator_domain = 5;
-  // Name of the publisher to qualify the isolate name.
+  // Name of the publisher to qualify the Isolate name.
   string destination_publisher_id = 11;
-  // Name of the isolate to reach to under the specific operator domain.
+  // Name of the Isolate to reach to under the specific operator domain.
   string destination_isolate_name = 10;
 
-  // Specific service name and method name inside the isolate to route traffic
+  // Specific service name and method name inside the Isolate to route traffic
   // to.
   string destination_service_name = 6;
   string destination_method_name = 7;
@@ -85,13 +81,26 @@ message ControlPlaneMetadata {
   // If validation succeeds, the enforcer will mount the shared memory into the
   // receiving Isolate's container view, so that the recipient can immediately
   // map the memory without further calls to the enforcer. If validation of any
-  // handle fails, the entire request will fail.
+  // handle fails, the entire request will fail. Shared memory is useful for
+  // sending large amounts of data to an Isolate.
   repeated string shared_memory_handles = 8;
 
   // Propagate metadata headers for requests going in and out of Isolates.
   // WARNING: This field should only be used for non-sensitive data or fields.
   // TODO: b/482844871 - Sanitize metadata_headers in non-debug modes.
   map<string, string> metadata_headers = 12;
+
+  // Propagated to the isolate from `CallParameters.request_metadata`.
+  map<string, bytes> request_metadata = 13;
+
+  // Allows the message sender to pass one or more fileshare handles. The
+  // Enforcer must validate that the handles are currently accessible to the
+  // message owner. If validation succeeds, the Enforcer will mount the
+  // fileshare directory into the receiving Isolate's container view
+  // (read-only), so that the recipient can read the file. Fileshares are useful
+  // for sending small to medium sized data (such as config files) which can be
+  // accessed through normal OS file APIs in the Isolate.
+  repeated string fileshare_handles = 14;
 }
 
 // Analogous to EzPayloadScope, but with IsolateDataScope instead of

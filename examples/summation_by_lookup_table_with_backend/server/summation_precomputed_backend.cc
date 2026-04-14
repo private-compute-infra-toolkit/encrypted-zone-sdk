@@ -47,10 +47,12 @@ class PrecomputedBackendImpl final : public PrecomputedBackend::Service {
       const ::google::protobuf::RepeatedPtrField<std::string>& request_bytes,
       std::string& response_bytes,
       std::vector<std::string>& response_shared_memory_handles,
+      std::vector<std::string>& response_fileshare_handles,
       absl::AnyInvocable<void(grpc::Status) &&> done) override {
     PrecomputedBackend::Service::IsolateRpcMethodHandler(
         context, method_name, request_bytes, response_bytes,
-        response_shared_memory_handles, std::move(done));
+        response_shared_memory_handles, response_fileshare_handles,
+        std::move(done));
     if (method_name == "FetchTable") {
       response_shared_memory_handles.push_back(shared_memory_handle_);
     }
@@ -59,11 +61,12 @@ class PrecomputedBackendImpl final : public PrecomputedBackend::Service {
   Status IsolateStreamRpcMethodHandler(
       uintptr_t stream_id, const InvokeIsolateRequest& invoke_isolate_request,
       EzIsolateBridgeSdk::ResponseWriter* invoke_isolate_resp_writer,
-      std::shared_ptr<std::vector<std::string>> response_shared_memory_handles)
+      std::shared_ptr<std::vector<std::string>> response_shared_memory_handles,
+      std::shared_ptr<std::vector<std::string>> response_fileshare_handles)
       override {
     Status status = PrecomputedBackend::Service::IsolateStreamRpcMethodHandler(
         stream_id, invoke_isolate_request, invoke_isolate_resp_writer,
-        response_shared_memory_handles);
+        response_shared_memory_handles, response_fileshare_handles);
     const auto& metadata = invoke_isolate_request.control_plane_metadata();
     const std::string& method_name = metadata.destination_method_name();
 

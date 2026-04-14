@@ -32,9 +32,9 @@ service EzToEzApi {
 
 message EzCallRequest {
   // Includes routing data. Fields requester_is_local and responder_is_local
-  // must be overwritten by receiving enforcer before forwarding to isolate.
+  // must be overwritten by receiving enforcer before forwarding to Isolate.
   enforcer.v1.ControlPlaneMetadata control_plane_metadata = 1;
-  // Inputs to the remote method (running in the remote node's isolates).
+  // Inputs to the remote method (running in the remote node's Isolates).
   enforcer.v1.EzPayloadScope payload_scope = 2;
   enforcer.v1.EzPayloadData payload_data = 3;
 }

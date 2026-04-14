@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef EZ_ISOLATE_BRIDGE_SERVER_H
-#define EZ_ISOLATE_BRIDGE_SERVER_H
+#ifndef CORE_CPP_SRC_EZ_ISOLATE_BRIDGE_SERVER_H
+#define CORE_CPP_SRC_EZ_ISOLATE_BRIDGE_SERVER_H
 
 #include <grpcpp/server.h>
 #include <grpcpp/server_context.h>
@@ -31,9 +31,11 @@
 #include <unordered_map>
 #include <vector>
 
+#include "absl/flags/declare.h"
 #include "absl/functional/any_invocable.h"
 #include "enforcer/v1/ez_isolate_bridge.grpc.pb.h"
 #include "enforcer/v1/ez_isolate_bridge.pb.h"
+#include "enforcer/v1/isolate_ez_bridge.pb.h"
 #include "google/protobuf/repeated_ptr_field.h"
 
 namespace EzIsolateBridgeSdk {
@@ -41,11 +43,6 @@ namespace EzIsolateBridgeSdk {
 using enforcer::v1::EzIsolateBridge;
 using enforcer::v1::InvokeIsolateRequest;
 using enforcer::v1::InvokeIsolateResponse;
-
-// Forward declarations for testing
-void CreateInvalidArgumentResponse(const std::string& message,
-                                   uint64_t ipc_msg_id,
-                                   InvokeIsolateResponse& response);
 
 class IsolateRpcService;
 void ForwardRequest(grpc::CallbackServerContext* context,
@@ -86,15 +83,19 @@ class IsolateRpcService {
       const google::protobuf::RepeatedPtrField<std::string>& request_bytes,
       std::string& response_bytes,
       std::vector<std::string>& response_shared_memory_handles,
+      std::vector<std::string>& response_fileshare_handles,
       absl::AnyInvocable<void(grpc::Status) &&> done) = 0;
   virtual grpc::Status IsolateStreamRpcMethodHandler(
       uintptr_t stream_id, const InvokeIsolateRequest& invoke_isolate_request,
       ResponseWriter* invoke_isolate_resp_writer,
-      std::shared_ptr<std::vector<std::string>>
-          response_shared_memory_handles) = 0;
+      std::shared_ptr<std::vector<std::string>> response_shared_memory_handles,
+      std::shared_ptr<std::vector<std::string>> response_fileshare_handles) = 0;
   virtual grpc::Status ForwardStreamingMessage(
       uintptr_t stream_id, const InvokeIsolateRequest& request) = 0;
   virtual grpc::Status RequestStreamClosed(uintptr_t stream_id) = 0;
+  virtual grpc::Status OnFileshareEvent(
+      std::string_view share_handle,
+      enforcer::v1::FileshareEvent::FileshareEventType event_type) = 0;
   virtual std::string_view GetServiceName() = 0;
 };
 
@@ -152,4 +153,4 @@ class IsolateRpcServer {
 
 }  // namespace EzIsolateBridgeSdk
 
-#endif  // EZ_ISOLATE_BRIDGE_SERVER_H
+#endif  // CORE_CPP_SRC_EZ_ISOLATE_BRIDGE_SERVER_H

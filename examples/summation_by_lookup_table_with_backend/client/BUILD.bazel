@@ -25,7 +25,7 @@ rust_binary(
     srcs = ["src/main.rs"],
     deps = [
         ":summation_client_lib",
-        "//enforcer/v1:enforcer_rust",
+        "//enforcer/v1:ez_service_rust",
         "//examples/summation_by_lookup_table_with_backend/proto:summation_rust_proto",
         "@crates//:anyhow",
         "@crates//:async-stream",
@@ -47,7 +47,7 @@ rust_library(
     name = "summation_client_lib",
     srcs = ["src/lib.rs"],
     deps = [
-        "//enforcer/v1:enforcer_rust",
+        "//enforcer/v1:ez_service_rust",
         "//examples/summation_by_lookup_table_with_backend/proto:summation_rust_proto",
         "@crates//:prost",
         "@crates//:rand",

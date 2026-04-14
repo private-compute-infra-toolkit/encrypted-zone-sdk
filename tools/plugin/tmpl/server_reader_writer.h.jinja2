@@ -18,23 +18,18 @@
  * limitations under the License.
  */
 
-{% for file in Files -%}
-{%- if file.service -%}
-{%- set ns = namespace(has_ez_services=false) -%}
-{%- for service in file.service -%}
-  {%- if get_option(service, 'enforcer.v1.ez_svc_annotation') -%}
-    {%- set ns.has_ez_services = true -%}
-  {%- endif -%}
-{%- endfor -%}
-{%- set svc = file.service[0] -%}
-{%- set svc_guard = svc.name | upper -%}
-{%- set define_guard = (svc_guard ~ "_" ~ file.package ~ "_SERVER_READER_WRITER_H_") | replace(".", "_") | upper -%}
+{% for file in Files %}
+{% if file.service %}
+{% set svcGuard = "" %}
+{% if file.service %}
+{% set svc = file.service[0] %}
+{% set svcGuard = svc.name | upper %}
+{% endif %}
 
+{% set defineGuard = file.package | replace(".", "_") | upper ~ "_" ~ svcGuard ~ "_SERVER_READER_WRITER_H_" %}
 
-
-
-#ifndef {{ define_guard }}
-#define {{ define_guard }}
+#ifndef {{ defineGuard }}
+#define {{ defineGuard }}
 
 #include <memory>
 #include <string>
@@ -42,7 +37,7 @@
 
 #include "absl/synchronization/mutex.h"
 
-{%- if ns.has_ez_services %}
+{%- if EzServices[file.name] %}
 #include "core/cpp/src/ez_isolate_bridge_server.h"
 
 using enforcer::v1::ControlPlaneMetadata;
@@ -55,7 +50,7 @@ using enforcer::v1::InvokeIsolateResponse;
 
 namespace {{ file.package | replace(".", "::") }} {
 {{ "\n" -}}
-{%- for svc in file.service %}
+{%- for svc in EzServices[file.name] %}
   /**
    * @brief An internal, non-templated interface for managing stream adapters.
    * This allows storing pointers to different types of stream adapters in a
@@ -137,10 +132,13 @@ namespace {{ file.package | replace(".", "::") }} {
     {{ svc.name }}ServerReaderWriter(uint64_t ipc_msg_id,
                        EzIsolateBridgeSdk::ResponseWriter* writer,
                        std::shared_ptr<std::vector<std::string>>
-                           response_shared_memory_handles)
+                           response_shared_memory_handles,
+                       std::shared_ptr<std::vector<std::string>>
+                           response_fileshare_handles)
         : ipc_msg_id_(ipc_msg_id),
           real_writer_(writer),
-          response_shared_memory_handles_(response_shared_memory_handles) {}
+          response_shared_memory_handles_(response_shared_memory_handles),
+          response_fileshare_handles_(response_fileshare_handles) {}
 
     /**
      * @brief Internal method to handle an incoming generic request from the
@@ -178,6 +176,9 @@ namespace {{ file.package | replace(".", "::") }} {
       control_plane_metadata->set_responder_is_local(true);
       for (const std::string& handle : *response_shared_memory_handles_) {
         control_plane_metadata->add_shared_memory_handles(handle);
+      }
+      for (const std::string& handle : *response_fileshare_handles_) {
+        control_plane_metadata->add_fileshare_handles(handle);
       }
       EzPayloadData* ez_payload_data = response_ptr->mutable_isolate_output();
       EzPayloadIsolateScope* ez_payload_iscope = response_ptr->mutable_isolate_output_iscope();
@@ -241,6 +242,7 @@ namespace {{ file.package | replace(".", "::") }} {
     EzIsolateBridgeSdk::ResponseWriter*
         real_writer_;  // The callback to the Reactor's stream
     std::shared_ptr<std::vector<std::string>> response_shared_memory_handles_;
+    std::shared_ptr<std::vector<std::string>> response_fileshare_handles_;
 
     absl::Mutex mu_;
     absl::CondVar cv_;
@@ -251,7 +253,7 @@ namespace {{ file.package | replace(".", "::") }} {
 }  // namespace {{ file.package | replace(".", "::") }}
 {{ "\n\n\n" -}}
 {% endif %}
-#endif  // {{ define_guard }}
+#endif  // {{ defineGuard }}
 {{ "\n\n" -}}
 {%- endif %}
 {%- endfor %}

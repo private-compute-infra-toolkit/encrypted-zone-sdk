@@ -1,0 +1,50 @@
+{
+  "isolate_name": "ezpkg://fileshare.test.com",
+  "publisher_id": "fileshare_test",
+  "package_filename": "/ez/fileshare_bundle.tar",
+  "bundle_manifest": {
+    "manifests": [
+      {
+        "isolate_name": "ezpkg://fileshare.test.com",
+        "publisher_id": "fileshare_test",
+        "package_filename": "/ez/fileshare_bundle.tar",
+        "binary_manifest": {
+          "binary_filename": "/usr/local/bin/sender",
+          "command_line_arguments": [""],
+          "service_specs": [
+            {
+              "service_name": "FileProvider",
+              "method_specs": [
+                {
+                  "method_name": "GetFile",
+                  "input_scope_types": ["DATA_SCOPE_TYPE_PUBLIC"],
+                  "output_scope_types": ["DATA_SCOPE_TYPE_PUBLIC"]
+                }
+              ]
+            }
+          ],
+          "number_of_isolates": 1,
+          "ez_backend_dependencies": []
+        }
+      },
+      {
+        "isolate_name": "ezpkg://fileshare.test.com",
+        "publisher_id": "fileshare_test",
+        "package_filename": "/ez/fileshare_bundle.tar",
+        "binary_manifest": {
+          "binary_filename": "/usr/local/bin/receiver",
+          "command_line_arguments": [""],
+          "service_specs": [],
+          "number_of_isolates": 1,
+          "ez_backend_dependencies": [
+            {
+              "operator_domain": "fileshare_test",
+              "service_name": "FileProvider",
+              "method_name": "GetFile"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

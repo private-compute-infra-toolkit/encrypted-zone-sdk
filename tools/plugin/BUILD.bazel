@@ -24,7 +24,6 @@ py_binary(
     main = "ez_sdk.py",
     visibility = ["//visibility:public"],
     deps = [
-        "//enforcer/v1:options_py_proto",
         "@pypi//jinja2",
         "@pypi//protobuf",
     ],

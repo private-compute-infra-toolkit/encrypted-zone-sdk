@@ -24,7 +24,6 @@ proto_library(
     name = "greeter_proto",
     srcs = ["greeter.proto"],
     visibility = ["//visibility:public"],
-    deps = ["//enforcer/v1:options_proto"],
 )
 
 cc_proto_library(
@@ -40,6 +39,7 @@ ez_isolate_service_cc(
     cc_protos = [":greeter_cc_proto"],
     proto_basename = "greeter",
     protos = [":greeter_proto"],
+    services = ["helloworld.Greeter"],
     visibility = ["//visibility:public"],
 )
 
@@ -48,6 +48,7 @@ ez_isolate_service_cc(
     cc_protos = [":greeter_cc_proto"],
     proto_basename = "ez_greeter",
     protos = [":greeter_proto"],
+    services = ["helloworld.Greeter"],
     visibility = ["//visibility:public"],
 )
 
@@ -56,6 +57,7 @@ ez_isolate_service_cc(
     proto_basename = "greeter",
     protoc_struct = custom_backend_struct,
     protos = [":greeter_proto"],
+    services = ["helloworld.Greeter"],
     visibility = ["//visibility:public"],
     deps = [
         ":greeter_cc_proto",
@@ -78,5 +80,4 @@ cpp_grpc_library(
     name = "greeter_grpc_proto",
     protos = [":greeter_proto"],
     visibility = ["//visibility:public"],
-    deps = ["//enforcer/v1:options_cc_proto"],
 )

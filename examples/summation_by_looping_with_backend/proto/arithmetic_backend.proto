@@ -16,25 +16,15 @@ syntax = "proto3";
 
 package arithmetic_backend;
 
-import "enforcer/v1/options.proto";
-
 option java_multiple_files = true;
 option java_outer_classname = "ArithmeticBackendProto";
 option java_package = "io.grpc.playground.arithmetic_backend";
 
-// TODO: Add protobuf annotations for auto-generator when ready.
-
 // Example "backend" service to do basic arithmetic ops.
 service ArithmeticBackend {
-  option (enforcer.v1.ez_svc_annotation) = {};
+  rpc Add(AddRequest) returns (AddResponse) {}
 
-  rpc Add(AddRequest) returns (AddResponse) {
-    option (enforcer.v1.ez_rpc_annotation) = {name: "Add"};
-  }
-
-  rpc StreamingAdd(stream AddRequest) returns (stream AddResponse) {
-    option (enforcer.v1.ez_rpc_annotation) = {name: "StreamingAdd"};
-  }
+  rpc StreamingAdd(stream AddRequest) returns (stream AddResponse) {}
 }
 
 message AddRequest {

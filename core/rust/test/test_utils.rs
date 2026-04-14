@@ -19,9 +19,11 @@ use enforcer_proto::enforcer::v1::ez_isolate_bridge_client::EzIsolateBridgeClien
 use enforcer_proto::enforcer::v1::ez_isolate_bridge_server::EzIsolateBridge;
 use enforcer_proto::enforcer::v1::isolate_ez_bridge_server::IsolateEzBridge;
 use enforcer_proto::enforcer::v1::{
-    ControlPlaneMetadata, CreateMemshareRequest, CreateMemshareResponse, InvokeEzRequest,
-    InvokeEzResponse, InvokeIsolateRequest, InvokeIsolateResponse, NotifyIsolateStateRequest,
-    NotifyIsolateStateResponse, PollIsolateStateRequest, PollIsolateStateResponse,
+    ControlPlaneMetadata, CreateFileshareRequest, CreateFileshareResponse, CreateMemshareRequest,
+    CreateMemshareResponse, InvokeEzRequest, InvokeEzResponse, InvokeIsolateRequest,
+    InvokeIsolateResponse, NotifyIsolateStateRequest, NotifyIsolateStateResponse,
+    PollIsolateStateRequest, PollIsolateStateResponse, PublishEventForRequest,
+    PublishEventForResponse, StreamSubscribeToRequest, StreamSubscribeToResponse,
 };
 use hyper_util::rt::TokioIo;
 use rust_core::{
@@ -168,7 +170,7 @@ impl IsolateRpcService for MockIsolateRpcService {
         }
         self.unary_call_count.fetch_add(1, Ordering::SeqCst);
         let resp = InvokeIsolateResponse {
-            isolate_output: Some(enforcer_proto::enforcer::v1::EzPayloadData {
+            isolate_output: Some(payload_proto::enforcer::v1::EzPayloadData {
                 datagrams: vec![request_bytes.to_vec()],
             }),
             ..Default::default()
@@ -328,6 +330,28 @@ impl IsolateEzBridge for MockIsolateEzBridgeServer {
         let state = self.last_known_state.lock().await;
 
         Ok(Response::new(PollIsolateStateResponse { isolate_state: state.unwrap_or(0) }))
+    }
+
+    async fn create_fileshare(
+        &self,
+        _request: Request<CreateFileshareRequest>,
+    ) -> Result<Response<CreateFileshareResponse>, Status> {
+        Err(Status::unimplemented("unimplemented"))
+    }
+
+    async fn publish_event_for(
+        &self,
+        _request: Request<PublishEventForRequest>,
+    ) -> Result<Response<PublishEventForResponse>, Status> {
+        Err(Status::unimplemented("unimplemented"))
+    }
+
+    type StreamSubscribeToStream = Pin<Box<dyn GrpcResponseStream<StreamSubscribeToResponse>>>;
+    async fn stream_subscribe_to(
+        &self,
+        _request: Request<StreamSubscribeToRequest>,
+    ) -> Result<Response<Self::StreamSubscribeToStream>, Status> {
+        Err(Status::unimplemented("unimplemented"))
     }
 }
 

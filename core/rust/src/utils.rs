@@ -14,10 +14,10 @@
 
 use enforcer_proto::data_scope_proto::enforcer::v1::DataScopeType;
 use enforcer_proto::enforcer::v1::{
-    EzPayloadData, EzPayloadIsolateScope, InvokeIsolateRequest, InvokeIsolateResponse,
-    IsolateDataScope,
+    EzPayloadIsolateScope, InvokeIsolateRequest, InvokeIsolateResponse, IsolateDataScope,
 };
 use futures::Stream;
+use payload_proto::enforcer::v1::EzPayloadData;
 use prost::Message;
 use std::pin::Pin;
 use tokio_stream::adapters::Peekable;

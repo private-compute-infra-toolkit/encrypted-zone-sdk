@@ -26,7 +26,6 @@ proto_library(
     name = "summation_proto",
     srcs = ["summation.proto"],
     visibility = ["//visibility:public"],
-    deps = ["//enforcer/v1:options_proto"],
 )
 
 proto_descriptor_set(
@@ -39,7 +38,6 @@ cpp_grpc_library(
     name = "summation_grpc_proto",
     protos = [":summation_proto"],
     visibility = ["//visibility:public"],
-    deps = ["//enforcer/v1:options_cc_proto"],
 )
 
 cc_proto_library(
@@ -53,6 +51,10 @@ ez_isolate_service_cc(
     cc_protos = [":summation_cc_proto"],
     proto_basename = "summation",
     protos = [":summation_proto"],
+    services = [
+        "summation.SimpleAdd",
+        "summation.CloneSimpleAdd",
+    ],
     visibility = ["//visibility:public"],
 )
 
@@ -66,7 +68,6 @@ proto_library(
     name = "precomputed_backend_proto",
     srcs = ["precomputed_backend.proto"],
     visibility = ["//visibility:public"],
-    deps = ["//enforcer/v1:options_proto"],
 )
 
 proto_descriptor_set(
@@ -79,7 +80,6 @@ cpp_grpc_library(
     name = "precomputed_backend_grpc_proto",
     protos = [":precomputed_backend_proto"],
     visibility = ["//visibility:public"],
-    deps = ["//enforcer/v1:options_cc_proto"],
 )
 
 cc_proto_library(
@@ -93,6 +93,7 @@ ez_isolate_service_cc(
     cc_protos = [":precomputed_backend_cc_proto"],
     proto_basename = "precomputed_backend",
     protos = [":precomputed_backend_proto"],
+    services = ["precomputed_backend.PrecomputedBackend"],
     visibility = ["//visibility:public"],
 )
 

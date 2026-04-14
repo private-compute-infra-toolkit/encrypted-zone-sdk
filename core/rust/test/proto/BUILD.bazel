@@ -19,7 +19,6 @@ proto_library(
     name = "test_message_proto",
     srcs = ["test_message.proto"],
     visibility = ["//core/rust:__subpackages__"],
-    deps = ["//enforcer/v1:options_proto"],
 )
 
 rust_prost_library(

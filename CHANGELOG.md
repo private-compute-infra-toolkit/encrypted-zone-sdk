@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## 0.14.0 (2026-04-14)
+
+
+### Dependencies
+
+* **deps:** Update DevKit to release-2.14.0
+* **deps:** Update DevKit to release-2.15.0
+* **deps:** Update DevKit to release-3.0.0
+* **deps:** Update DevKit to release-3.1.1
+* **deps:** Update DevKit to release-3.2.0
+
+
+### Features
+
+* add request_metadata to isolate bridge
+* Add separate unary call for vectors
+* EZ Public API Sync
+* EZ Public API Sync
+* EZ Public API Sync
+* EZ SDK sync
+* EZ SDK Sync
+* EZ SDK Sync
+* EZ SDK Sync
+* EZ SDK Sync
+* EZ SDK Sync
+* EZ SDK Sync
+* Fix ExponentialBackoff args in examples
+* Remove nonexistent deps
+* Remove options.proto usage from examples
+* **rust:** enable OpenTelemetry metrics export over UDS loopback
+* **sdk:** Add fileshare example
+
 ## 0.13.0 (2026-03-16)
 
 

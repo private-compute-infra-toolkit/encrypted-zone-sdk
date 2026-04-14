@@ -23,7 +23,6 @@
 #include <unistd.h>
 
 #include <cctype>
-#include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -39,11 +38,19 @@ using ::grpc::ServerBidiReactor;
 using ::grpc::ServerBuilder;
 using ::grpc::Status;
 
+using ::enforcer::v1::CreateFileshareRequest;
+using ::enforcer::v1::CreateFileshareResponse;
+using ::enforcer::v1::EventTopic;
+using ::enforcer::v1::FileshareEvent;
 using ::enforcer::v1::InvokeEzRequest;
 using ::enforcer::v1::InvokeEzResponse;
 using ::enforcer::v1::IsolateEzBridge;
 using ::enforcer::v1::NotifyIsolateStateRequest;
 using ::enforcer::v1::NotifyIsolateStateResponse;
+using ::enforcer::v1::PublishEventForRequest;
+using ::enforcer::v1::PublishEventForResponse;
+using ::enforcer::v1::StreamSubscribeToRequest;
+using ::enforcer::v1::StreamSubscribeToResponse;
 
 using ::enforcer::v1::EzIsolateBridge;
 using ::enforcer::v1::InvokeIsolateRequest;
@@ -179,6 +186,39 @@ class MockEnforcerImpl final : public IsolateEzBridge::CallbackService {
     std::cout << "[Mock Enforcer] Incoming StreamInvokeEz connection."
               << std::endl;
     return new StreamInvokeEzReactor(&routing_table_);
+  }
+  grpc::ServerUnaryReactor* CreateFileshare(
+      CallbackServerContext* context, const CreateFileshareRequest* request,
+      CreateFileshareResponse* response) override {
+    std::cout << "[Mock Enforcer] Received CreateFileshare request."
+              << std::endl;
+    // Just return a placeholder handle for now.
+    response->set_fileshare_handle("mock-fileshare-handle");
+    auto* reactor = context->DefaultReactor();
+    reactor->Finish(Status::OK);
+    return reactor;
+  }
+
+  grpc::ServerUnaryReactor* PublishEventFor(
+      CallbackServerContext* context, const PublishEventForRequest* request,
+      PublishEventForResponse* response) override {
+    std::cout << "[Mock Enforcer] Received PublishEventFor request for topic: "
+              << request->topic() << std::endl;
+    auto* reactor = context->DefaultReactor();
+    reactor->Finish(Status::OK);
+    return reactor;
+  }
+
+  grpc::ServerWriteReactor<StreamSubscribeToResponse>* StreamSubscribeTo(
+      CallbackServerContext* context,
+      const StreamSubscribeToRequest* request) override {
+    std::cout << "[Mock Enforcer] Incoming StreamSubscribeTo connection."
+              << std::endl;
+    // Unimplemented for now.
+    auto* reactor = context->DefaultReactor();
+    reactor->Finish(Status(grpc::StatusCode::UNIMPLEMENTED, "Unimplemented"));
+    return reinterpret_cast<
+        grpc::ServerWriteReactor<StreamSubscribeToResponse>*>(reactor);
   }
 
  private:

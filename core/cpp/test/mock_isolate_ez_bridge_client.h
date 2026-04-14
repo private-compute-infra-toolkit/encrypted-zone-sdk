@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MOCK_ISOLATE_EZ_BRIDGE_CLIENT_H
-#define MOCK_ISOLATE_EZ_BRIDGE_CLIENT_H
+#ifndef CORE_CPP_TEST_MOCK_ISOLATE_EZ_BRIDGE_CLIENT_H
+#define CORE_CPP_TEST_MOCK_ISOLATE_EZ_BRIDGE_CLIENT_H
 
 #include <gmock/gmock.h>
 #include <grpcpp/client_context.h>
@@ -26,6 +26,9 @@
 #include <string>
 
 #include "absl/functional/any_invocable.h"
+#include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+#include "core/cpp/src/create_fileshare_response.h"
 #include "core/cpp/src/isolate_ez_bridge_client.h"
 #include "core/cpp/src/mem_share_response.h"
 
@@ -57,6 +60,16 @@ class MockBridgeClient : public IsolateEzBridgeClient {
       (override));
   MOCK_METHOD(bool, NewIsolateState,
               (::enforcer::v1::IsolateState new_isolate_state), (override));
+  MOCK_METHOD(CreateFileshareResponse, CreateFileshare, (), (override));
+  MOCK_METHOD(absl::Status, CommitFileChanges, (absl::string_view staging_path),
+              (override));
+  MOCK_METHOD(void, RegisterFileshareEventHandler,
+              (absl::AnyInvocable<void(
+                   absl::string_view fileshare_handle,
+                   enforcer::v1::FileshareEvent::FileshareEventType event_type)>
+                   handler),
+              (override));
+  MOCK_METHOD(void, ClearFileshareEventHandlers, (), (override));
   MOCK_METHOD(MemShareResponse, CreateMemShareInternal,
               (int64_t size, char** ptr), (override));
   MOCK_METHOD(IsolateEzBridgeSdk::Vec<char>, ReceiveMemShareInternal, (),
@@ -73,4 +86,4 @@ class MockBridgeClient : public IsolateEzBridgeClient {
 
 }  // namespace IsolateEzBridgeSdk
 
-#endif  // MOCK_ISOLATE_EZ_BRIDGE_CLIENT_H
+#endif  // CORE_CPP_TEST_MOCK_ISOLATE_EZ_BRIDGE_CLIENT_H

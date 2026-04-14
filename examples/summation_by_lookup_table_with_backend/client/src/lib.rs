@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use enforcer_proto::enforcer::v1::ez_public_api_client::EzPublicApiClient;
-use enforcer_proto::enforcer::v1::{CallParameters, CallRequest, SessionMetadata};
+use ez_service_proto::enforcer::v1::ez_public_api_client::EzPublicApiClient;
+use ez_service_proto::enforcer::v1::{CallParameters, CallRequest, SessionMetadata};
 use prost::Message;
 use std::collections::HashMap;
 use summation_proto::summation::IntegerSequenceRequest;

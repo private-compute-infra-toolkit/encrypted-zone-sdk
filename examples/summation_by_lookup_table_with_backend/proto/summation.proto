@@ -16,30 +16,18 @@ syntax = "proto3";
 
 package summation;
 
-import "enforcer/v1/options.proto";
-
 option java_multiple_files = true;
 option java_outer_classname = "SummationProto";
 option java_package = "io.grpc.playground.summation";
 
-// TODO: Add protobuf annotations for auto-generator when ready.
-
 // Service definition for the summation server.
 service SimpleAdd {
-  option (enforcer.v1.ez_svc_annotation) = {};
-
-  rpc IntegerSequence(IntegerSequenceRequest) returns (IntegerSequenceResponse) {
-    option (enforcer.v1.ez_rpc_annotation) = {name: "IntegerSequence"};
-  }
-  rpc StreamingIntegerSequence(stream IntegerSequenceRequest) returns (stream IntegerSequenceResponse) {
-    option (enforcer.v1.ez_rpc_annotation) = {name: "StreamingIntegerSequence"};
-  }
+  rpc IntegerSequence(IntegerSequenceRequest) returns (IntegerSequenceResponse) {}
+  rpc StreamingIntegerSequence(stream IntegerSequenceRequest) returns (stream IntegerSequenceResponse) {}
 }
 
 // This service is added to test multiple services per Isolate.
 service CloneSimpleAdd {
-  option (enforcer.v1.ez_svc_annotation) = {name: "CloneSimpleAddService"};
-
   rpc CloneIntegerSequence(IntegerSequenceRequest) returns (IntegerSequenceResponse);
 }
 

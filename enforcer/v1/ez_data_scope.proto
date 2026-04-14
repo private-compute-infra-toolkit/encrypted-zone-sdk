@@ -18,10 +18,6 @@ package enforcer.v1;
 
 import "enforcer/v1/data_scope_type.proto";
 
-// Specifies import path for the generated Go code used to auto-generate SDK
-// code from proto annotations.
-option go_package = "github.com/private-compute-infra-toolkit/ez/sdk/v1";
-
 // Describes the entity that owns an instantiated EZ data scope.
 message EzScopeOwner {
   // Optional
@@ -67,7 +63,7 @@ message EzDynamicScopeInfo {
 // Data here can be highly dynamic, with minimal cost for mututations.
 // DO NOT STORE THIS AT REST or send it over the network.
 message EzLocalScopeInfo {
-  // Used for optimistic locking of transactions with local isolates.
+  // Used for optimistic locking of transactions with local Isolates.
   int64 version_sequence_num = 1;
   // TODO: Add owner-egress encryption info
   // TODO: Add local scope lifecycle state (INCOMING, ACTIVE, IDLE, TEARDOWN)

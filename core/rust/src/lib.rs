@@ -14,6 +14,7 @@
 
 mod isolate_ez_bridge_client;
 mod isolate_server;
+mod otel;
 mod rpc_dispatcher;
 mod rpc_handler;
 mod utils;

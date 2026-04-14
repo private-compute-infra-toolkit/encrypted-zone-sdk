@@ -18,30 +18,25 @@
  * limitations under the License.
  */
 
-{% for file in Files -%}
-{%- if file.service -%}
-{%- set ns = namespace(has_ez_services=false) -%}
-{%- for service in file.service -%}
-  {%- if get_option(service, 'enforcer.v1.ez_svc_annotation') -%}
-    {%- set ns.has_ez_services = true -%}
-  {%- endif -%}
-{%- endfor -%}
-{%- set svc = file.service[0] -%}
-{%- set svc_guard = svc.name | upper -%}
-{%- set define_guard = (svc_guard ~ "_" ~ file.package ~ "_CLIENT_READER_WRITER_H_") | replace(".", "_") | upper -%}
+{% for file in Files %}
+{% if file.service %}
+{% set svcGuard = "" %}
+{% if file.service %}
+{% set svc = file.service[0] %}
+{% set svcGuard = svc.name | upper %}
+{% endif %}
 
+{% set defineGuard = file.package | replace(".", "_") | upper ~ "_" ~ svcGuard ~ "_CLIENT_READER_WRITER_H_" %}
 
-
-
-#ifndef {{ define_guard }}
-#define {{ define_guard }}
+#ifndef {{ defineGuard }}
+#define {{ defineGuard }}
 
 #include <memory>
 #include <string>
 
 #include <grpcpp/grpcpp.h>
 
-{%- if ns.has_ez_services %}
+{%- if EzServices[file.name] %}
 #include "core/cpp/src/ez_isolate_bridge_server.h"
 #include "core/cpp/src/isolate_ez_bridge_client.h"
 
@@ -55,7 +50,7 @@ using enforcer::v1::IsolateDataScope;
 
 namespace {{ file.package | replace(".", "::") }} {
 {{ "\n" -}}
-{%- for svc in file.service %}
+{%- for svc in EzServices[file.name] %}
 /**
  * @brief A client-side proxy for a bidirectional streaming RPC.
  * This class implements the standard gRPC ClientReaderWriterInterface for a specific
@@ -209,7 +204,7 @@ class {{ svc.name }}ClientReaderWriter final
 {{ "\n\n\n" -}}
 {% endif %}
 
-#endif  // {{ define_guard }}
+#endif  // {{ defineGuard }}
 {{ "\n\n" -}}
 {%- endif %}
 {%- endfor %}

@@ -1,0 +1,50 @@
+# Copyright 2026 Google LLC
+
+load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
+load("@rules_proto//proto:defs.bzl", "proto_descriptor_set")
+load("@rules_proto_grpc_cpp//:defs.bzl", "cpp_grpc_library")
+load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
+load(
+    "//tools/plugin:ez_sdk.bzl",
+    "ez_isolate_service_cc",
+)
+
+proto_library(
+    name = "fileshare_proto",
+    srcs = ["fileshare.proto"],
+    visibility = ["//visibility:public"],
+)
+
+proto_descriptor_set(
+    name = "fileshare_proto_descriptor_set",
+    visibility = ["//visibility:public"],
+    deps = [":fileshare_proto"],
+)
+
+cpp_grpc_library(
+    name = "fileshare_grpc_proto",
+    protos = [":fileshare_proto"],
+    visibility = ["//visibility:public"],
+)
+
+cc_proto_library(
+    name = "fileshare_cc_proto",
+    visibility = ["//visibility:public"],
+    deps = [":fileshare_proto"],
+)
+
+ez_isolate_service_cc(
+    name = "fileshare_service",
+    cc_protos = [":fileshare_cc_proto"],
+    proto_basename = "fileshare",
+    protos = [":fileshare_proto"],
+    services = ["fileshare.FileProvider"],
+    visibility = ["//visibility:public"],
+)
+
+rust_prost_library(
+    name = "fileshare_rust_proto",
+    proto = ":fileshare_proto",
+    visibility = ["//visibility:public"],
+)

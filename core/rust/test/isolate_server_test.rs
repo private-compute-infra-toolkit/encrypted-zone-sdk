@@ -17,11 +17,12 @@ use anyhow::Context;
 use enforcer_proto::enforcer::v1::ez_isolate_bridge_server::EzIsolateBridge;
 use enforcer_proto::enforcer::v1::isolate_ez_bridge_server::IsolateEzBridgeServer;
 use enforcer_proto::enforcer::v1::{
-    ControlPlaneMetadata, EzPayloadData, InvokeIsolateRequest, InvokeIsolateResponse, IsolateState,
+    ControlPlaneMetadata, InvokeIsolateRequest, InvokeIsolateResponse, IsolateState,
 };
 use nix::sys::stat::Mode;
 use nix::unistd::mkfifo;
 use once_cell::sync::Lazy;
+use payload_proto::enforcer::v1::EzPayloadData;
 use rust_core::{IsolateRpcServer, RpcDispatcher};
 use std::env;
 use std::error::Error;

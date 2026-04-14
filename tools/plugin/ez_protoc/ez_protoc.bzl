@@ -118,6 +118,8 @@ def _build_protoc_args(
     path_separator = ctx.configuration.host_path_separator
     tool_exec_path = plugin.tool_provider.files_to_run.executable.path
     template_str = ctx.attr.template_transform.get(str(plugin.label), "")
+    if hasattr(ctx.attr, "services") and ctx.attr.services:
+        template_str += ",services={}".format(";".join(ctx.attr.services))
 
     args_list = [
         "--descriptor_set_in={}".format(path_separator.join([f.path for f in descriptor_sets])),

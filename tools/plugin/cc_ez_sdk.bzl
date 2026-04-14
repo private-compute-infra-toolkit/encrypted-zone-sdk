@@ -46,6 +46,7 @@ def ez_isolate_service(
         name,
         proto_basename,
         protos,
+        services,
         protoc_struct = struct(
             protoc_rule = cc_backend_protoc,
             sdk_plugins = cc_backend_template_plugins,
@@ -60,6 +61,7 @@ def ez_isolate_service(
         name: name of target, basename of ancillary targets.
         proto_basename: basename of the protobuf source file. Used as the basename of the generated header files.
         protos: list of proto_library targets
+        services: list of fully qualified service names to generate EZ SDK code for.
         protoc_struct: Struct returned from create_ez_protoc_rule, with three attributes:
           protoc_rule: Bazel rule used to run protoc (defaults to cc_backend_protoc)
           sdk_plugins: List of sdk plugins to generate code based on templates supplied to create_ez_protoc_rule
@@ -103,6 +105,7 @@ def ez_isolate_service(
         protos = protos,
         proto_basename = proto_basename,
         protoc_struct = protoc_struct,
+        services = services,
         tags = tags,
     )
     if contains_cpp_src_file:

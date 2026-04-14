@@ -42,14 +42,12 @@ import os
 import re
 import sys
 import traceback
-from typing import Any
 
 import jinja2
 from jinja2 import exceptions
 
 from google.protobuf.compiler import plugin_pb2
 from google.protobuf import descriptor_pb2
-from enforcer.v1 import options_pb2
 
 TemplateError = exceptions.TemplateError
 FileSystemLoader = jinja2.FileSystemLoader
@@ -83,7 +81,7 @@ def _ext(value: str) -> str:
 
 def _trim_suffix(value: str, suffix: str) -> str:
   if suffix and value.endswith(suffix):
-    return value[:-len(suffix)]
+    return value[: -len(suffix)]
   return value
 
 
@@ -97,34 +95,6 @@ def _split(value: str, separator: str) -> list[str]:
   return value.split(separator)
 
 
-def _get_option(descriptor: Any, option_name: str) -> Any | None:
-  """Gets a custom option from a descriptor.
-
-  Args:
-    descriptor: The proto descriptor (e.g., FileDescriptor, ServiceDescriptor)
-      to check for options.
-    option_name: The fully qualified name of the option extension. e.g.
-      'enforcer.v1.ez_svc_annotation'
-
-  Returns:
-    The value of the custom option if found, otherwise None.
-  """
-  if not descriptor.options:
-    return None
-
-  extensions = {
-      'enforcer.v1.ez_svc_annotation': options_pb2.ez_svc_annotation,
-      'enforcer.v1.ez_rpc_annotation': options_pb2.ez_rpc_annotation,
-      'enforcer.v1.ez_msg_annotation': options_pb2.ez_msg_annotation,
-      'enforcer.v1.ez_field_annotation': options_pb2.ez_field_annotation,
-  }
-
-  ext = extensions.get(option_name)
-  if ext and descriptor.options.HasExtension(ext):
-    return descriptor.options.Extensions[ext]
-  return None
-
-
 def create_jinja_environment(template_dir: str) -> Environment:
   """Creates and configures a Jinja2 Environment."""
   env = Environment(
@@ -136,13 +106,11 @@ def create_jinja_environment(template_dir: str) -> Environment:
   env.filters['trim_suffix'] = _trim_suffix
   env.filters['lstrip'] = _lstrip
   env.filters['split'] = _split
-  env.globals['get_option'] = _get_option
   return env
 
 
 def generate_code(
-    request: plugin_pb2.CodeGeneratorRequest,
-    env: Environment | None = None
+    request: plugin_pb2.CodeGeneratorRequest, env: Environment | None = None
 ) -> plugin_pb2.CodeGeneratorResponse:
   """Generates code based on the CodeGeneratorRequest using Jinja2.
 
@@ -164,9 +132,7 @@ def generate_code(
   # If comma-separated values are needed within a single parameter,
   # a more robust parsing mechanism (e.g., with escaping) would be required.
   params = dict(
-      p.split('=', 1)
-      for p in request.parameter.split(',')
-      if '=' in p
+      p.split('=', 1) for p in request.parameter.split(',') if '=' in p
   )
 
   template_dir = params.get(
@@ -188,9 +154,30 @@ def generate_code(
     response.error = f'Failed to load template {template_name}: {error_msg}'
     return response
 
+  services_param = params.get('services')
+  registry_services = (
+      set(services_param.split(';')) if services_param else set()
+  )
+
+  def _get_fully_qualified_name(proto_file, svc):
+    if proto_file.package:
+      return f'{proto_file.package}.{svc.name}'
+    return svc.name
+
+  # Avoid O(n*m) complexity by converting the list to a set for lookup.
+  files_to_generate = set(request.file_to_generate)
+  ez_services_map = {}
+  for proto_file in request.proto_file:
+    ez_services_map[proto_file.name] = [
+        svc
+        for svc in proto_file.service
+        if _get_fully_qualified_name(proto_file, svc) in registry_services
+    ]
+
   context = {
-      'Files': request.proto_file,
+      'Files': [f for f in request.proto_file if f.name in files_to_generate],
       'Request': request,
+      'EzServices': ez_services_map,
   }
 
   try:

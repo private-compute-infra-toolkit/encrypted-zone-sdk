@@ -36,11 +36,6 @@
 
 {{range $svc := .Services}}
 
-{{- $svcopts := index $svc.Options "enforcer.v1.ez_svc_annotation"}}
-{{- if $svcopts }}
-// Annotated Service name: {{$svcopts.GetName}}
-{{end}}{{/* if $svcopts */}}
-
 namespace {{$file.Package | replace "." "_"}} {
 class {{$svc.Name}}CustomTmplClass {
  public:

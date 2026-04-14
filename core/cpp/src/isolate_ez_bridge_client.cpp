@@ -16,7 +16,6 @@
 
 #include <fcntl.h>
 #include <grpc/grpc.h>
-#include <grpcpp/create_channel.h>
 #include <grpcpp/security/credentials.h>
 #include <grpcpp/server_context.h>
 #include <grpcpp/support/channel_arguments.h>
@@ -29,13 +28,16 @@
 
 #include <atomic>
 #include <cerrno>
+#include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <functional>
-#include <iostream>
 #include <memory>
 #include <stack>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -45,10 +47,15 @@
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
 #include "absl/synchronization/notification.h"
+#include "absl/time/time.h"
+#include "core/cpp/src/create_fileshare_response.h"
 #include "core/cpp/src/mem_share_response.h"
+#include "core/cpp/src/utils.h"
 #include "enforcer/v1/ez_payload.pb.h"
 #include "enforcer/v1/isolate_bridge.pb.h"
 #include "enforcer/v1/isolate_ez_bridge.grpc.pb.h"
@@ -57,8 +64,8 @@ using enforcer::v1::ControlPlaneMetadata;
 using enforcer::v1::CreateMemshareRequest;
 using enforcer::v1::CreateMemshareResponse;
 using enforcer::v1::DataScopeType;
-using enforcer::v1::EzPayloadData;
-using enforcer::v1::EzPayloadIsolateScope;
+using enforcer::v1::EventTopic;
+using enforcer::v1::FileshareEvent;
 using enforcer::v1::InvokeEzRequest;
 using enforcer::v1::InvokeEzResponse;
 using enforcer::v1::IsolateDataScope;
@@ -66,6 +73,10 @@ using enforcer::v1::IsolateEzBridge;
 using enforcer::v1::IsolateState;
 using enforcer::v1::NotifyIsolateStateRequest;
 using enforcer::v1::NotifyIsolateStateResponse;
+using enforcer::v1::PublishEventForRequest;
+using enforcer::v1::PublishEventForResponse;
+using enforcer::v1::StreamSubscribeToRequest;
+using enforcer::v1::StreamSubscribeToResponse;
 
 namespace grpc {
 inline std::ostream& operator<<(std::ostream& os, const grpc::Status& status) {
@@ -87,6 +98,7 @@ inline std::ostream& operator<<(std::ostream& os, const grpc::Status& status) {
 namespace IsolateEzBridgeSdk {
 
 namespace {
+
 bool IsLocalEzInstanceId(absl::string_view ez_instance_id) { return false; }
 
 std::string& GetUdsAddress() {
@@ -100,6 +112,8 @@ std::string& GetReadySignalPath() {
       "/enforcer-isolate-shared/isolate-ez-bridge-uds.ready");
   return *path;
 }
+
+constexpr absl::string_view kStagingFileSuffix = ".staging";
 }  // namespace
 
 // Soft limit for gRPC metadata size.
@@ -117,6 +131,12 @@ class IsolateEzBridgeClientImpl : public IsolateEzBridgeClient {
   }
 
   ~IsolateEzBridgeClientImpl() override {
+    if (fileshare_event_context_) {
+      fileshare_event_context_->TryCancel();
+    }
+    if (fileshare_event_thread_ && fileshare_event_thread_->joinable()) {
+      fileshare_event_thread_->join();
+    }
     LOG(INFO) << "IsolateEzBridgeClient destroyed";
   }
 
@@ -137,7 +157,8 @@ class IsolateEzBridgeClientImpl : public IsolateEzBridgeClient {
                               const std::string& request_bytes,
                               std::string& response_bytes) override {
     LOG_EVERY_N(INFO, 1000)
-        << "IsolateRpcCall EZ-to-EZ to " << service_name << "." << method_name;
+        << "IsolateRpcCall EZ outbound call: " << service_name << "."
+        << method_name;
     // Create a new context for the outbound call to the bridge, but propagate
     // the deadline from the user's context if available.
     grpc::ClientContext outbound_context;
@@ -166,6 +187,9 @@ class IsolateEzBridgeClientImpl : public IsolateEzBridgeClient {
       const std::string& ez_instance_id, const std::string& request_bytes,
       std::string* response_bytes,
       absl::AnyInvocable<void(grpc::Status) &&> callback) override {
+    LOG_EVERY_N(INFO, 1000)
+        << "AsyncIsolateRpcCall EZ outbound call: " << service_name << "."
+        << method_name;
     // Check for local handlers first.
     if (IsLocalEzInstanceId(ez_instance_id)) {
       auto it = local_handlers_.find(service_name);
@@ -210,43 +234,49 @@ class IsolateEzBridgeClientImpl : public IsolateEzBridgeClient {
 
     auto* raw_request = async_call_state->request.get();
     auto* raw_response = async_call_state->response.get();
-    isolate_ez_bridge_stub_->async()->InvokeEz(
-        context, raw_request, raw_response,
-        [this,
-         state = std::move(async_call_state)](grpc::Status status) mutable {
-          if (!status.ok()) {
-            std::move(state->callback)(status);
-            return;
-          }
 
-          if (state->response->control_plane_metadata().ipc_message_id() !=
-              state->ipc_message_id) {
-            std::move(state->callback)(grpc::Status(
-                grpc::StatusCode::INTERNAL, "Mismatched IPC message id"));
-            return;
-          }
+    std::unique_ptr<IsolateEzBridge::Stub>* bridge_stub =
+        &isolate_ez_bridge_stub_;
+    (*bridge_stub)
+        ->async()
+        ->InvokeEz(
+            context, raw_request, raw_response,
+            [this,
+             state = std::move(async_call_state)](grpc::Status status) mutable {
+              if (!status.ok()) {
+                std::move(state->callback)(status);
+                return;
+              }
 
-          for (const auto& handle : state->response->control_plane_metadata()
-                                        .shared_memory_handles()) {
-            if (absl::Status s = ProcessReceivedSharedMemoryHandle(handle);
-                !s.ok()) {
-              std::move(state->callback)(
-                  grpc::Status(grpc::StatusCode::INTERNAL, s.ToString()));
-              return;
-            }
-          }
+              if (state->response->control_plane_metadata().ipc_message_id() !=
+                  state->ipc_message_id) {
+                std::move(state->callback)(grpc::Status(
+                    grpc::StatusCode::INTERNAL, "Mismatched IPC message id"));
+                return;
+              }
 
-          if (state->response->ez_response_payload().datagrams().empty()) {
-            std::move(state->callback)(grpc::Status(
-                grpc::StatusCode::INTERNAL, "Missing response payload"));
-            return;
-          }
+              for (const auto& handle :
+                   state->response->control_plane_metadata()
+                       .shared_memory_handles()) {
+                if (absl::Status s = ProcessReceivedSharedMemoryHandle(handle);
+                    !s.ok()) {
+                  std::move(state->callback)(
+                      grpc::Status(grpc::StatusCode::INTERNAL, s.ToString()));
+                  return;
+                }
+              }
 
-          *state->response_bytes =
-              std::move(*state->response->mutable_ez_response_payload()
-                             ->mutable_datagrams(0));
-          std::move(state->callback)(grpc::Status::OK);
-        });
+              if (state->response->ez_response_payload().datagrams().empty()) {
+                std::move(state->callback)(grpc::Status(
+                    grpc::StatusCode::INTERNAL, "Missing response payload"));
+                return;
+              }
+
+              *state->response_bytes =
+                  std::move(*state->response->mutable_ez_response_payload()
+                                 ->mutable_datagrams(0));
+              std::move(state->callback)(grpc::Status::OK);
+            });
   }
 
   std::unique_ptr<::grpc::ClientReaderWriter<::enforcer::v1::InvokeEzRequest,
@@ -256,7 +286,130 @@ class IsolateEzBridgeClientImpl : public IsolateEzBridgeClient {
                        const std::string& service_name,
                        const std::string& method_name,
                        const std::string& ez_instance_id) override {
-    return isolate_ez_bridge_stub_->StreamInvokeEz(context);
+    std::unique_ptr<IsolateEzBridge::Stub>* bridge_stub =
+        &isolate_ez_bridge_stub_;
+    return (*bridge_stub)->StreamInvokeEz(context);
+  }
+
+  CreateFileshareResponse CreateFileshare() override {
+    grpc::ClientContext context;
+    std::unique_ptr<IsolateEzBridge::Stub>* bridge_stub =
+        &isolate_ez_bridge_stub_;
+    enforcer::v1::CreateFileshareRequest request;
+    enforcer::v1::CreateFileshareResponse response;
+    grpc::Status status =
+        (*bridge_stub)->CreateFileshare(&context, request, &response);
+    if (!status.ok()) {
+      return {.status = status};
+    }
+    std::string fileshare_handle =
+        std::move(*response.mutable_fileshare_handle());
+    std::string shared_path = absl::StrCat("/", fileshare_handle, "/file");
+    std::string staging_path =
+        absl::StrCat("/", fileshare_handle, "/file", kStagingFileSuffix);
+    // Create the shared and staging files in the fileshare directory.
+    {
+      std::ofstream shared_fs(shared_path);
+      std::ofstream staging_fs(staging_path);
+    }
+    return {
+        .status = status,
+        .fileshare_handle = std::move(fileshare_handle),
+        .shared_path = std::move(shared_path),
+        .staging_path = std::move(staging_path),
+    };
+  }
+
+  absl::Status CommitFileChanges(absl::string_view staging_path) override {
+    if (!absl::EndsWith(staging_path, kStagingFileSuffix)) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("staging_path must end with ", kStagingFileSuffix));
+    }
+    std::string share_path(staging_path.substr(
+        0, staging_path.length() - kStagingFileSuffix.length()));
+    if (share_path.empty()) {
+      return absl::InvalidArgumentError("staging_path is invalid");
+    }
+    // Copy the staging file to the shared path. This preserves the staging
+    // file.
+    std::string tmp_path = absl::StrCat(share_path, ".tmp");
+    std::error_code ec;
+    std::filesystem::copy(staging_path, tmp_path, ec);
+    if (ec.value() != 0) {
+      return absl::InternalError(
+          absl::StrCat("Failed to copy staging file: ", ec.message()));
+    }
+    // The rename sys call can be used to atomically replace the file.
+    if (rename(tmp_path.c_str(), share_path.c_str()) != 0) {
+      return absl::ErrnoToStatus(errno,
+                                 "Failed to commit file changes via rename");
+    }
+    std::string fileshare_handle =
+        std::filesystem::path(share_path).parent_path().filename();
+    // Notify the Enforcer that the file has been updated.
+    grpc::ClientContext context;
+    PublishEventForRequest request;
+    request.set_topic(EventTopic::EVENT_TOPIC_FILESHARE);
+    request.set_handle(std::move(fileshare_handle));
+    request.mutable_fileshare_event()->set_event_type(
+        FileshareEvent::FILESHARE_EVENT_TYPE_FILE_UPDATED);
+    std::unique_ptr<IsolateEzBridge::Stub>* bridge_stub =
+        &isolate_ez_bridge_stub_;
+    PublishEventForResponse response;
+    // Do this synchronously so the caller can easily handle failures.
+    return ToAbslStatus(
+        (*bridge_stub)->PublishEventFor(&context, request, &response));
+  }
+
+  void RegisterFileshareEventHandler(
+      absl::AnyInvocable<void(absl::string_view fileshare_handle,
+                              FileshareEvent::FileshareEventType event_type)>
+          handler) override {
+    {
+      absl::MutexLock lock(handlers_mutex_);
+      fileshare_event_handlers_.push_back(std::move(handler));
+    }
+    if (!fileshare_stream_started_.exchange(true)) {
+      StartFileshareEventStream();
+    }
+  }
+
+  void ClearFileshareEventHandlers() override {
+    absl::MutexLock lock(handlers_mutex_);
+    fileshare_event_handlers_.clear();
+  }
+
+  // Starts a stream of fileshare events from the Enforcer.
+  void StartFileshareEventStream() {
+    fileshare_event_context_ = std::make_unique<grpc::ClientContext>();
+    if (fileshare_event_thread_ && fileshare_event_thread_->joinable()) {
+      fileshare_event_thread_->join();
+    }
+
+    auto fileshare_event_handler = [this]() {
+      StreamSubscribeToRequest init_req;
+      init_req.set_topic(EventTopic::EVENT_TOPIC_FILESHARE);
+      std::unique_ptr<IsolateEzBridge::Stub>* bridge_stub =
+          &isolate_ez_bridge_stub_;
+      std::unique_ptr<::grpc::ClientReader<StreamSubscribeToResponse>> stream =
+          (*bridge_stub)
+              ->StreamSubscribeTo(fileshare_event_context_.get(), init_req);
+      StreamSubscribeToResponse response;
+      while (stream->Read(&response)) {
+        if (response.topic() != EventTopic::EVENT_TOPIC_FILESHARE ||
+            !response.has_fileshare_event()) {
+          continue;
+        }
+        absl::MutexLock lock(handlers_mutex_);
+        for (auto& handler : fileshare_event_handlers_) {
+          handler(response.handle(), response.fileshare_event().event_type());
+        }
+      }
+      LOG(INFO) << "Fileshare event stream ended";
+      fileshare_stream_started_.store(false);
+    };
+    fileshare_event_thread_ =
+        std::make_unique<std::thread>(std::move(fileshare_event_handler));
   }
 
   bool NewIsolateState(IsolateState new_isolate_state) override {
@@ -270,8 +423,9 @@ class IsolateEzBridgeClientImpl : public IsolateEzBridgeClient {
     }
 
     grpc::ClientContext context;
-    auto create_memshare_stream =
-        isolate_ez_bridge_stub_->CreateMemshare(&context);
+    std::unique_ptr<IsolateEzBridge::Stub>* bridge_stub =
+        &isolate_ez_bridge_stub_;
+    auto create_memshare_stream = (*bridge_stub)->CreateMemshare(&context);
     CreateMemshareRequest request;
     request.set_region_size(size);
     if (!create_memshare_stream->Write(request) ||
@@ -394,8 +548,9 @@ class IsolateEzBridgeClientImpl : public IsolateEzBridgeClient {
 
   bool SendNewIsolateState(IsolateState new_isolate_state) {
     grpc::ClientContext context;
-    auto notify_state_stream =
-        isolate_ez_bridge_stub_->NotifyIsolateState(&context);
+    std::unique_ptr<IsolateEzBridge::Stub>* bridge_stub =
+        &isolate_ez_bridge_stub_;
+    auto notify_state_stream = (*bridge_stub)->NotifyIsolateState(&context);
     NotifyIsolateStateRequest request;
     request.set_new_isolate_state(new_isolate_state);
     if (!notify_state_stream->Write(request) ||
@@ -431,6 +586,13 @@ class IsolateEzBridgeClientImpl : public IsolateEzBridgeClient {
       std::string, std::function<grpc::Status(
                        const std::string&, const std::string&, std::string&)>>
       local_handlers_;
+  std::vector<absl::AnyInvocable<void(absl::string_view,
+                                      FileshareEvent::FileshareEventType)>>
+      fileshare_event_handlers_;
+  absl::Mutex handlers_mutex_;
+  std::atomic<bool> fileshare_stream_started_{false};
+  std::unique_ptr<grpc::ClientContext> fileshare_event_context_;
+  std::unique_ptr<std::thread> fileshare_event_thread_;
 };
 
 // This is a mix of pImpl-style hidden implementation, and a static factory

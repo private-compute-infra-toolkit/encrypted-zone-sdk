@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use enforcer_proto::data_scope_proto::enforcer::v1::DataScopeType;
-use enforcer_proto::enforcer::v1::{EzPayloadData, InvokeIsolateRequest};
+use enforcer_proto::enforcer::v1::InvokeIsolateRequest;
+use payload_proto::enforcer::v1::EzPayloadData;
 use prost::Message;
 use rust_core::{
     invoke_isolate_stream_to_message_stream, message_stream_to_invoke_isolate_stream,

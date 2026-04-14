@@ -18,8 +18,6 @@ The example sections of each step are based on the following proto example:
 syntax = "proto3";
 package helloworld;
 
-import "enforcer/v1/options.proto";
-
 option java_multiple_files = true;
 option java_outer_classname = "HelloWorldProto";
 option java_package = "io.grpc.playground.helloworld";
@@ -59,6 +57,8 @@ This macro takes in as input:
     -   basename of the protobuf source file. Used as the basename of the generated header files.
 -   `protos`:
     -   List of `proto_library` targets
+-   `services`:
+    -   List of fully qualified service names to generate EZ SDK code for.
 -   `protoc_struct`:
     -   Struct returned from `create_ez_protoc_rule`, with three attributes:
         -   `protoc_rule`:
@@ -81,14 +81,12 @@ proto_library(
     name = "greeter_proto",
     srcs = ["greeter.proto"],
     visibility = ["//visibility:public"],
-    deps = ["//enforcer/v1:options_proto"],
 )
 
 cpp_grpc_library(
     name = "greeter_grpc_proto",
     protos = [":greeter_proto"],
     visibility = ["//visibility:public"],
-    deps = ["//enforcer/v1:options_cc_proto"],
 )
 
 cc_proto_library(
@@ -104,6 +102,7 @@ ez_isolate_service_cc(
     cc_protos = [":greeter_cc_proto"],
     proto_basename = "greeter",
     protos = [":greeter_proto"],
+    services = ["helloworld.Greeter"],
     visibility = ["//visibility:public"],
 )
 

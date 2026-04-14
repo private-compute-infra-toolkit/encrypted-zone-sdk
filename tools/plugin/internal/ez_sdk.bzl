@@ -51,6 +51,9 @@ def get_proto_compile_attrs(plugins):
         proto_basename = attr.string(
             doc = "The base name to use for generated files (without extensions)",
         ),
+        services = attr.string_list(
+            doc = "List of fully qualified service names to generate EZ SDK code for.",
+        ),
         _protocol_compiler = attr.label(
             default = "@com_google_protobuf//:protoc",
             cfg = "exec",
@@ -63,7 +66,7 @@ def get_proto_compile_attrs(plugins):
         ),
     )
 
-def _ez_sdk_protoc(*, name, protoc_rule, plugins, protos, proto_basename, **kwargs):
+def _ez_sdk_protoc(*, name, protoc_rule, plugins, protos, proto_basename, services = [], **kwargs):
     protoc_rule(
         name = name,
         template_transform = {
@@ -73,6 +76,7 @@ def _ez_sdk_protoc(*, name, protoc_rule, plugins, protos, proto_basename, **kwar
         },
         proto_basename = proto_basename,
         protos = protos,
+        services = services,
         **kwargs
     )
 
@@ -143,13 +147,14 @@ rs_backend_protoc = rule(
     attrs = get_proto_compile_attrs(rs_backend_template_plugins + rs_server_bridge_template_plugins),
 )
 
-def ez_sdk_backend_protoc(*, name, protos, proto_basename, protoc_struct, **kwargs):
+def ez_sdk_backend_protoc(*, name, protos, proto_basename, protoc_struct, services = [], **kwargs):
     _ez_sdk_protoc(
         name = name,
         protoc_rule = protoc_struct.protoc_rule,
         plugins = protoc_struct.sdk_plugins,
         protos = protos,
         proto_basename = proto_basename,
+        services = services,
         **kwargs
     )
 

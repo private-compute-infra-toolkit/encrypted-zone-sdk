@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 
-#ifndef MEM_SHARE_RESPONSE_H
-#define MEM_SHARE_RESPONSE_H
+#ifndef CORE_CPP_SRC_MEM_SHARE_RESPONSE_H
+#define CORE_CPP_SRC_MEM_SHARE_RESPONSE_H
 
-#include <grpcpp/grpcpp.h>
+#include <grpcpp/support/status.h>
 
 #include <string>
 
@@ -25,8 +25,9 @@
 // the memory sharing/mapping succeeded, otherwise a suitable status will be
 // set.
 struct MemShareResponse {
+  // TODO: Remove status field.
   grpc::Status status;
   std::string shared_memory_handle;
 };
 
-#endif  // MEM_SHARE_RESPONSE_H
+#endif  // CORE_CPP_SRC_MEM_SHARE_RESPONSE_H
